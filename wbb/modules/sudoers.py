@@ -1,26 +1,3 @@
-"""
-MIT License
-
-Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 import asyncio
 import os
 import subprocess
@@ -93,10 +70,6 @@ DISK: {disk}%
 """
     return stats
 
-
-# Gban
-
-
 @app.on_message(filters.command("gban") & SUDOERS)
 @capture_err
 async def ban_globally(_, message):
@@ -117,30 +90,34 @@ async def ban_globally(_, message):
         f"**Banning {user.mention} Globally!**"
         + f" **This Action Should Take About {len(served_chats)} Seconds.**"
     )
+
     await add_gban_user(user_id)
     number_of_chats = 0
+
     for served_chat in served_chats:
         try:
-            chat_member = await app.get_chat_member(
-                served_chat["chat_id"], user.id
-            )
+            chat_id = int(served_chat["group_id"])  # fixed: use group_id
+            chat_member = await app.get_chat_member(chat_id, user.id)
             if chat_member.status == ChatMemberStatus.MEMBER:
-                await app.ban_chat_member(served_chat["chat_id"], user.id)
+                await app.ban_chat_member(chat_id, user.id)
                 number_of_chats += 1
             await asyncio.sleep(1)
         except FloodWait as e:
             await asyncio.sleep(int(e.value))
         except Exception:
             pass
+
     try:
         await app.send_message(
             user.id,
             f"Hello, You have been globally banned by {from_user.mention},"
-            + " You can appeal for this ban by talking to him.",
+            + " You can appeal for this ban by talking to them.",
         )
     except Exception:
         pass
+
     await m.edit(f"Banned {user.mention} Globally!")
+
     ban_text = f"""
 __**New Global Ban**__
 **Origin:** {message.chat.title} [`{message.chat.id}`]
@@ -148,7 +125,8 @@ __**New Global Ban**__
 **Banned User:** {user.mention}
 **Banned User ID:** `{user_id}`
 **Reason:** __{reason}__
-**Chats:** `{number_of_chats}`"""
+**Chats Affected:** `{number_of_chats}`"""
+
     try:
         m2 = await app.send_message(
             GBAN_LOG_GROUP_ID,
@@ -161,8 +139,9 @@ __**New Global Ban**__
         )
     except Exception:
         await message.reply_text(
-            "User Gbanned, But This Gban Action Wasn't Logged, Add Me In GBAN_LOG_GROUP"
+            "User Gbanned, But This Gban Action Wasn't Logged — Add Me In GBAN_LOG_GROUP"
         )
+
 
 @app.on_message(filters.command("ungban") & SUDOERS)
 @capture_err
@@ -174,12 +153,13 @@ async def unban_globally(_, message):
 
     is_gbanned = await is_gbanned_user(user.id)
     if not is_gbanned:
-        await message.reply_text("I don't remember Gbanning him.")
+        await message.reply_text("I don't remember Gbanning them.")
     else:
         await remove_gban_user(user.id)
-        await message.reply_text(f"Lifted {user.mention}'s Global Ban.'")
+        await message.reply_text(f"✅ Lifted {user.mention}'s Global Ban.")
 
-@app.on_message(filters.command("update") & SUDOERS)
+
+@app.on_message(filters.command("gupdate") & SUDOERS)
 async def update_restart(_, message):
     try:
         out = subprocess.check_output(["git", "pull"]).decode("UTF-8")
@@ -194,7 +174,7 @@ async def update_restart(_, message):
     await restart(m)
 
 
-@app.on_message(filters.command("restart") & SUDOERS)
+@app.on_message(filters.command("grestart") & SUDOERS)
 async def update_restart(_, message):
     m = await message.reply_text(
         "**Bot is restarting now.**"
