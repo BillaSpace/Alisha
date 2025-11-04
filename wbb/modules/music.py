@@ -14,17 +14,15 @@ TEMP_DIR = "downloads"
 if not os.path.exists(TEMP_DIR):
     os.mkdir(TEMP_DIR)
 
-# Temporary cache for callback lookups
-app.song_cache = {}
-
-__MODULE__ = "Music"
-__HELP__ = """
-/song [link] To Download Music From Various Websites.
-/music [query] To Download Music From Saavn.
-"""
+app.song_cache = {}  # cache for callback data
 
 
-# ------------------------- /song or /music command -------------------------
+# Clean titles (remove HTML entities)
+def clean_text(text: str) -> str:
+    return re.sub(r"&(?:quot|amp|#39|lt|gt);", "", text)
+
+
+# ---------------- /song or /music command ----------------
 
 @app.on_message(filters.command(["song", "music"]))
 @capture_err
@@ -45,15 +43,15 @@ async def saavn_search(_, message: Message):
 
     buttons = []
     for song in results[:5]:
-        sid = secrets.token_hex(3)  # 6-character ID
-        title = re.sub(r"&(?:quot|amp|#39);", "", song.get("song", "Unknown"))
-        artist = re.sub(r"&(?:quot|amp|#39);", "", song.get("singers", "Unknown Artist"))
+        sid = secrets.token_hex(3)
+        title = clean_text(song.get("song", "Unknown"))
+        artist = clean_text(song.get("singers", "Unknown Artist"))
         app.song_cache[sid] = {
             "title": title,
             "artist": artist,
             "media_url": song["media_url"],
             "image": song["image"],
-            "duration": song["duration"]
+            "duration": song.get("duration", "0")
         }
         buttons.append([InlineKeyboardButton(f"{title} - {artist}", callback_data=f"song_{sid}")])
 
@@ -63,7 +61,7 @@ async def saavn_search(_, message: Message):
     )
 
 
-# ------------------------- Song selection handler -------------------------
+# ---------------- Song selection handler ----------------
 
 @app.on_callback_query(filters.regex(r"^song_[0-9a-f]+$"))
 async def choose_quality(_, query: CallbackQuery):
@@ -82,41 +80,51 @@ async def choose_quality(_, query: CallbackQuery):
         ]
     ]
     await query.message.edit_text(
-        f"🎵 **{title}** - {artist}\n\nChoose your preferred quality:",
+        f"🎵 **{title}** - {artist}\n\nChoose quality:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
-# ------------------------- Quality selection handler -------------------------
+# ---------------- Download and Send ----------------
 
 @app.on_callback_query(filters.regex(r"^quality_[0-9a-f]+_"))
 async def download_and_send(_, query: CallbackQuery):
-    parts = query.data.split("_")
-    sid, quality = parts[1], parts[2]
+    _, sid, quality = query.data.split("_")
     data = app.song_cache.get(sid)
-
     if not data:
         return await query.answer("Request expired.", show_alert=True)
 
     title = data["title"]
     artist = data["artist"]
-    media_url = data["media_url"]
-    thumb = data["image"]
-    duration = int(data["duration"])
     performer = "Alisha Ai"
+    duration = int(data.get("duration", 0))
+    media_url = data["media_url"]
+    thumb_url = data["image"]
 
     await query.message.edit_text(f"⬇️ Downloading **{title}** ...")
 
+    # Download audio file
     file_path = os.path.join(TEMP_DIR, f"{sid}.m4a")
-
     async with aiohttp.ClientSession() as session:
         async with session.get(media_url) as resp:
             if resp.status != 200:
-                return await query.message.edit_text("Failed to fetch media file.")
+                return await query.message.edit_text("Failed to download audio.")
             with open(file_path, "wb") as f:
                 f.write(await resp.read())
 
-    # Convert to ALAC if selected
+        # Download thumbnail safely
+        thumb_path = None
+        if thumb_url:
+            try:
+                thumb_path = os.path.join(TEMP_DIR, f"{sid}.jpg")
+                async with session.get(thumb_url) as resp2:
+                    if resp2.status == 200:
+                        with open(thumb_path, "wb") as t:
+                            t.write(await resp2.read())
+            except Exception:
+                thumb_path = None
+
+    # Convert to ALAC if needed
     if quality == "alac":
         await query.message.edit_text("🎚️ Converting to ALAC (Apple Lossless)...")
         alac_path = os.path.join(TEMP_DIR, f"{sid}_alac.m4a")
@@ -137,20 +145,18 @@ async def download_and_send(_, query: CallbackQuery):
         title=title,
         performer=performer,
         duration=duration,
-        thumb=thumb,
-        caption=f"🎶 **{title}**\n👩‍💻 Performer: {performer}\n\n⚠️ Auto-deletes in 5 minutes.",
+        thumb=thumb_path if thumb_path and os.path.exists(thumb_path) else None,
+        caption=f"🎶 **{title}**\n👩‍💻 Performer: {performer}\n💽 Quality: {quality.upper()}",
     )
 
     await query.message.edit_text("✅ Sent successfully!")
 
-    # Schedule cleanup
+    # Cleanup cache and files
     async def cleanup():
         await asyncio.sleep(300)
-        try:
-            os.remove(file_path)
-        except:
-            pass
-        if sid in app.song_cache:
-            del app.song_cache[sid]
+        for f in [file_path, thumb_path]:
+            if f and os.path.exists(f):
+                os.remove(f)
+        app.song_cache.pop(sid, None)
 
     asyncio.create_task(cleanup())
