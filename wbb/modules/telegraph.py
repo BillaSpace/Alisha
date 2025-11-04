@@ -8,7 +8,7 @@ from wbb.core.decorators.errors import capture_err
 
 __MODULE__ = "Telegraph"
 __HELP__ = """
-/telegraph [Page name]: Paste styled text on Telegraph.
+/telegraph [Page name]: Replying to a Message to Paste styled text on Telegraph.
 /tgm: Upload photo/video/document to Catbox.
 """
 
