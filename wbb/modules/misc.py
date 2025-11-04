@@ -25,6 +25,9 @@ import re
 import secrets
 import string
 import subprocess
+import time
+import socket
+import platform
 from asyncio import Lock
 from re import findall
 
@@ -64,8 +67,6 @@ __HELP__ = """
 /json [URL]
     Get parsed JSON response from a rest API.
 
-/arq
-    Statistics Of ARQ API.
 
 /webss | .webss [URL] [FULL_SIZE?, use (y|yes|true) to get full size image. (optional)]
     Take A Screenshot Of A Webpage
@@ -97,9 +98,7 @@ __HELP__ = """
 #RTFM - Tell noobs to read the manual
 """
 
-ASQ_LOCK = Lock()
 PING_LOCK = Lock()
-
 
 @app2.on_message(
     SUDOERS
@@ -120,40 +119,68 @@ async def ping_handler(_, message):
         }
         text = "**Pings:**\n"
 
+        system = platform.system().lower()
         for dc, ip in ips.items():
+            # choose ping args per platform
+            if system == "windows":
+                # -n count, -w timeout (ms)
+                cmd = ["ping", "-n", "1", "-w", "2000", ip]
+            else:
+                # unix-like: -c count, -W timeout (seconds)
+                cmd = ["ping", "-c", "1", "-W", "2", ip]
+
             try:
-                shell = subprocess.run(
-                    ["ping", "-c", "1", "-W", "2", ip],
+                proc = subprocess.run(
+                    cmd,
                     text=True,
-                    check=True,
                     capture_output=True,
                 )
-                resp_time = findall(r"time=.+m?s", shell.stdout, re.MULTILINE)[
-                    0
-                ].replace("time=", "")
-
-                text += f"    **{dc.upper()}:** {resp_time} ✅\n"
+                out = (proc.stdout or "") + (proc.stderr or "")
+                # only treat returncode==0 as success for parsing ping
+                if proc.returncode == 0:
+                    # try several common time= formats, and time<1ms
+                    m1 = re.search(r"time[=<]\s*([\d.]+)\s*ms", out)
+                    m2 = re.search(r"time[=<]\s*(<\s*1)\s*ms", out)
+                    m3 = re.search(r"time[=<]\s*([\d.]+)\s*m?s", out)  # fallback
+                    if m1:
+                        resp_time = f"{m1.group(1)} ms"
+                    elif m2:
+                        resp_time = "<1 ms"
+                    elif m3:
+                        resp_time = f"{m3.group(1)}"
+                    else:
+                        # couldn't parse but ping returned 0 -> mark reachable
+                        resp_time = "reachable"
+                    text += f"    **{dc.upper()}:** {resp_time} ✅\n"
+                else:
+                    # ping returned non-zero (no reply) — try TCP connect fallback
+                    try:
+                        start = time.time()
+                        sock = socket.create_connection((ip, 443), timeout=2)
+                        sock.close()
+                        elapsed_ms = int((time.time() - start) * 1000)
+                        text += (
+                            f"    **{dc.upper()}:** reachable (tcp) ~{elapsed_ms} ms ✅\n"
+                        )
+                    except Exception:
+                        text += f"    **{dc.upper()}:** ❌\n"
+            except FileNotFoundError:
+                # ping command not available on system — do TCP check only
+                try:
+                    start = time.time()
+                    sock = socket.create_connection((ip, 443), timeout=2)
+                    sock.close()
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    text += (
+                        f"    **{dc.upper()}:** reachable (tcp) ~{elapsed_ms} ms ✅\n"
+                    )
+                except Exception:
+                    text += f"    **{dc.upper()}:** ❌\n"
             except Exception:
-                # There's a cross emoji here, but it's invisible.
-                text += f"    **{dc.upper}:** ❌\n"
+                # any other unexpected error -> mark fail
+                text += f"    **{dc.upper()}:** ❌\n"
+
         await m.edit(text)
-
-
-@app.on_message(filters.command("asq"))
-async def asq(_, message):
-    err = "Reply to text message or pass the question as argument"
-    if message.reply_to_message:
-        if not message.reply_to_message.text:
-            return await message.reply(err)
-        question = message.reply_to_message.text
-    else:
-        if len(message.command) < 2:
-            return await message.reply(err)
-        question = message.text.split(None, 1)[1]
-    m = await message.reply("Thinking...")
-    async with ASQ_LOCK:
-        resp = await arq.asq(question)
-        await m.edit(resp.result)
 
 
 @app.on_message(filters.command("commit"))
@@ -274,7 +301,16 @@ async def json_fetch(_, message):
     m = await message.reply_text("Fetching")
     try:
         data = await get(url)
-        data = await json_prettify(data)
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                pass
+        if isinstance(data, dict) or isinstance(data, list):
+            data = await json_prettify(data)
+        else:
+            data = str(data)
+
         if len(data) < 4090:
             await m.edit(data)
         else:
