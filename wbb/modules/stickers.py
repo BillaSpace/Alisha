@@ -53,9 +53,9 @@ from wbb.utils.stickerset import (
 
 __MODULE__ = "Stickers"
 __HELP__ = """
-/sticker_id
+/stickerid
     To get FileID of a Sticker.
-/get_sticker
+/getsticker
     To get sticker as a photo and document.
 /kang
     To kang a Sticker or an Image."""
@@ -66,7 +66,7 @@ MAX_STICKERS = (
 SUPPORTED_TYPES = ["jpeg", "png", "webp"]
 
 
-@app.on_message(filters.command("sticker_id"))
+@app.on_message(filters.command("stickerid"))
 @capture_err
 async def sticker_id(_, message: Message):
     reply = message.reply_to_message
@@ -80,7 +80,7 @@ async def sticker_id(_, message: Message):
     await message.reply_text(f"`{reply.sticker.file_id}`")
 
 
-@app.on_message(filters.command("get_sticker"))
+@app.on_message(filters.command("getsticker"))
 @capture_err
 async def sticker_image(_, message: Message):
     r = message.reply_to_message
