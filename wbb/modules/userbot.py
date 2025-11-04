@@ -12,22 +12,17 @@ import sys
 import traceback
 from html import escape
 from io import StringIO
-from asyncio import sleep
-from collections import defaultdict, deque
 
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import MessageNotModified
 from pyrogram.types import Message, ReplyKeyboardMarkup
-from aiohttp import ClientSession
 
 from wbb import app2  # don't remove
 from wbb import SUDOERS, USERBOT_PREFIX, eor
 from wbb.core.tasks import add_task, rm_task
 
-# ---------------------------
-#   Eval and Shell Section
-# ---------------------------
+# Eval and Sh module from nana-remix
 
 m = None
 p = print
@@ -45,10 +40,13 @@ async def aexec(code, client, message):
 
 async def iter_edit(message: Message, text: str):
     async for m in app2.get_chat_history(message.chat.id):
+        # If no replies found, reply
         if m.id == message.id:
             return 0
+
         if not m.from_user or not m.text or not m.reply_to_message:
             continue
+
         if (
             (m.reply_to_message.id == message.id)
             and (m.from_user.id == message.from_user.id)
@@ -79,19 +77,17 @@ async def executor(client, message: Message):
     m = message
     p = print
 
-    # Prevent keyboard input attacks
+    # To prevent keyboard input attacks
     if m.reply_to_message:
         r = m.reply_to_message
         if r.reply_markup and isinstance(r.reply_markup, ReplyKeyboardMarkup):
             return await eor(m, text="INSECURE!")
-
     status = None
     old_stderr = sys.stderr
     old_stdout = sys.stdout
     redirected_output = sys.stdout = StringIO()
     redirected_error = sys.stderr = StringIO()
     stdout, stderr, exc = None, None, None
-
     try:
         task, task_id = await add_task(
             aexec,
@@ -100,9 +96,11 @@ async def executor(client, message: Message):
             client,
             m,
         )
+
         text = f"{arrow('')} Pending Task `{task_id}`"
         if not message.edit_date:
             status = await m.reply(text, quote=True)
+
         await task
     except Exception as e:
         e = traceback.format_exc()
@@ -115,8 +113,16 @@ async def executor(client, message: Message):
     stderr = redirected_error.getvalue()
     sys.stdout = old_stdout
     sys.stderr = old_stderr
+    evaluation = ""
+    if exc:
+        evaluation = exc
+    elif stderr:
+        evaluation = stderr
+    elif stdout:
+        evaluation = stdout
+    else:
+        evaluation = "Success"
 
-    evaluation = exc or stderr or stdout or "Success"
     final_output = f"**→**\n`{escape(evaluation.strip())}`"
 
     if len(final_output) > 4096:
@@ -133,12 +139,12 @@ async def executor(client, message: Message):
             await status.delete()
         return
 
+    # Edit the output if input is edited
     if message.edit_date:
         status_ = await iter_edit(message, final_output)
         if status_ == 0:
             return await message.reply(final_output, quote=True)
         return
-
     if not status.from_user:
         status = await app2.get_messages(status.chat.id, status.id)
     await eor(status, text=final_output, quote=True)
@@ -201,10 +207,8 @@ async def shellrunner(_, message: Message):
                 text=f"**INPUT:**\n```{escape(text)}```\n\n**ERROR:**\n```{''.join(errors)}```",
             )
         output = process.stdout.read()[:-1].decode("utf-8")
-
     if str(output) == "\n":
         output = None
-
     if output:
         if len(output) > 4096:
             with open("output.txt", "w+") as file:
@@ -226,60 +230,38 @@ async def shellrunner(_, message: Message):
             text=f"**INPUT:**\n```{escape(text)}```\n\n**OUTPUT: **\n`No output`",
         )
 
+HISTORY = [
+        {"role": "system", "content": "You are a human, behave and response like a human, don't behave like a bot because you are not an ai bot.\n\nAlways end a message with a question or new topic"}
+    ]
+from wbb.utils.http import post
+from asyncio import sleep
 
-# ----------------------------
-#  Chatbot Section (Ollama + Cached Memory)
-# ----------------------------
-
-CHAT_MEMORY = defaultdict(lambda: deque(maxlen=20))
-
-SYSTEM_PROMPT = (
-    "You are a sexy teen human girl. Behave and respond like a human girl, "
-    "not a bot. Always end a message with a question or new topic with some naughty texts."
+@app2.on_message(
+        filters.chat([-1002030443562, "billacore"])
+        & filters.text
 )
-
-
-async def query_ollama(messages):
-    async with ClientSession() as session:
-        async with session.post(
-            "http://127.0.0.1:11434/api/chat",
-            json={"model": "llama3", "messages": messages, "stream": False},
-            headers={"Content-Type": "application/json"},
-        ) as resp:
-            if resp.status != 200:
-                raise Exception(await resp.text())
-            data = await resp.json()
-            return data.get("message", {}).get("content", "")
-
-
-@app2.on_message(filters.chat([-1002030443562, "billacore"]) & filters.text)
-async def chatbot_handler(_, message: Message):
-    if (message.from_user.username or "").lower() in ["ifeelram", "oye_anurag"]:
+async def asd_temp(_, message: Message):
+    if (message.from_user.username or "").lower() in ["thehamkercat", "jojiiofficial"]:
         return
+    text = message.text
 
-    chat_id = message.chat.id
-    user_msg = message.text.strip()
+    HISTORY.append({"role": "user", "content": text})
 
-    # Initialize memory
-    if not CHAT_MEMORY[chat_id]:
-        CHAT_MEMORY[chat_id].append({"role": "system", "content": SYSTEM_PROMPT})
-
-    CHAT_MEMORY[chat_id].append({"role": "user", "content": user_msg})
-
-    try:
-        reply_text = await query_ollama(list(CHAT_MEMORY[chat_id]))
-    except Exception as e:
-        print(f"[Chatbot Error] {e}")
-        reply_text = "⚠️ Chat service is currently offline or unreachable."
-
-    CHAT_MEMORY[chat_id].append({"role": "assistant", "content": reply_text})
+    response = await post(
+             "https://arq.hamker.dev/v1/chat/completions",
+             headers={"Content-Type": "application/json"},
+             json={
+                 "messages": HISTORY,
+                  "temperature": 0.7, 
+                  "max_tokens": -1,
+                  "stream": False,
+                }
+            )
+    resp_text = response['choices'][0]['message']['content']
+    HISTORY.append({"role": "assistant", "content": resp_text})
     await sleep(10)
-    await message.reply(reply_text)
+    return await message.reply(resp_text)
 
-
-# ----------------------------
-#  Reserve Channel Command
-# ----------------------------
 
 @app2.on_message(
     filters.command("reserve", prefixes=USERBOT_PREFIX)
@@ -292,6 +274,7 @@ async def reserve_channel_handler(_, message: Message):
         return await eor(message, text="Pass a username as argument!!")
 
     username = message.text.split(None, 1)[1].strip().replace("@", "")
+
     m = await eor(message, text="Reserving...")
 
     chat = await app2.create_channel(username, "Created by .reserve command")
@@ -300,5 +283,4 @@ async def reserve_channel_handler(_, message: Message):
     except Exception as e:
         await m.edit(f"Couldn't Reserve, Error: `{str(e)}`")
         return await app2.delete_channel(chat.id)
-
     await m.edit(f"Reserved @{username} Successfully")
