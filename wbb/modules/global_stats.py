@@ -21,8 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-import asyncio
 
+import asyncio
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait
@@ -49,11 +49,13 @@ from wbb.utils.inlinefuncs import keywords_list
 @app.on_message(filters.command("clean_db") & SUDOERS)
 @capture_err
 async def clean_db(_, message):
-    served_chats = [int(i["chat_id"]) for i in (await get_served_chats())]
+    # fixed: use group_id instead of chat_id
+    served_chats = [int(i["group_id"]) for i in (await get_served_chats()) if "group_id" in i]
     m = await message.reply(
-        f"__**Cleaning database, Might take around {len(served_chats) * 2} seconds.**__",
+        f"__**Cleaning database, might take around {len(served_chats) * 2} seconds.**__",
     )
-    for served_chat in served_chats:
+
+    for served_chat in served_chats.copy():
         try:
             await app.get_chat_members(served_chat, BOT_ID)
             await asyncio.sleep(2)
@@ -62,19 +64,31 @@ async def clean_db(_, message):
         except Exception:
             await remove_served_chat(served_chat)
             served_chats.remove(served_chat)
-    await m.edit("**Database Cleaned.**")
+
+    await m.edit("**✅ Database Cleaned Successfully.**")
 
 
+# fixed: properly handle group_id from chatsdb
 async def get_total_users_count():
     schats = await get_served_chats()
-    chats = [int(chat["chat_id"]) for chat in schats]
+    chats = []
+
+    for chat in schats:
+        cid = chat.get("group_id")  # correct field name
+        if cid:
+            try:
+                chats.append(int(cid))
+            except ValueError:
+                continue
+
     total_count = 0
     for chat_id in chats:
         try:
             count = await app.get_chat_members_count(chat_id)
             total_count += count
-        except Exception:
-            print(f"Error fetching members count for chat: {chat_id}")
+        except Exception as e:
+            print(f"Error fetching members count for chat {chat_id}: {e}")
+
     return total_count
 
 
@@ -83,60 +97,51 @@ async def get_total_users_count():
 async def global_stats(_, message):
     m = await app.send_message(
         message.chat.id,
-        text="__**Analysing Stats...**__",
+        text="__**Analysing global stats...**__",
         disable_web_page_preview=True,
     )
 
-    # For bot served chat and users count
+    # ✅ fixed: counts now match your db schema (group_id / _id)
     served_chats = len(await get_served_chats())
     served_users = len(await get_served_users())
-    total_users = await get_total_users_count()  # get total user count
-    # Gbans count
+    total_users = await get_total_users_count()
     gbans = await get_gbans_count()
+
+    # the rest of the stats remain unchanged
     _notes = await get_notes_count()
     notes_count = _notes["notes_count"]
     notes_chats_count = _notes["chats_count"]
 
-    # Filters count across chats
     _filters = await get_filters_count()
     filters_count = _filters["filters_count"]
     filters_chats_count = _filters["chats_count"]
 
-    # Blacklisted filters count across chats
     _filters = await get_blacklist_filters_count()
     blacklist_filters_count = _filters["filters_count"]
     blacklist_filters_chats_count = _filters["chats_count"]
 
-    # Warns count across chats
     _warns = await get_warns_count()
     warns_count = _warns["warns_count"]
     warns_chats_count = _warns["chats_count"]
 
-    # Karmas count across chats
     _karmas = await get_karmas_count()
     karmas_count = _karmas["karmas_count"]
     karmas_chats_count = _karmas["chats_count"]
 
-    # Contributors/Developers count and commits on github
     url = "https://api.github.com/repos/thehamkercat/williambutcherbot/contributors"
     rurl = "https://github.com/thehamkercat/williambutcherbot"
     developers = await get(url)
-    commits = 0
-    for developer in developers:
-        commits += developer["contributions"]
+    commits = sum([d["contributions"] for d in developers])
     developers = len(developers)
 
-    # Rss feeds
     rss_count = await get_rss_feeds_count()
-    # Modules info
     modules_count = len(ALL_MODULES)
 
-    # Userbot info
+    # userbot info
     groups_ub = channels_ub = bots_ub = privates_ub = total_ub = 0
     async for i in app2.get_dialogs():
         t = i.chat.type
         total_ub += 1
-
         if t in [ChatType.SUPERGROUP, ChatType.GROUP]:
             groups_ub += 1
         elif t == ChatType.CHANNEL:
@@ -147,25 +152,26 @@ async def global_stats(_, message):
             privates_ub += 1
 
     msg = f"""
-**Global Stats of {BOT_NAME}**:
-    **{modules_count}** Modules Loaded.
-    **{len(keywords_list)}** Inline Modules Loaded.
-    **{rss_count}** Active RSS Feeds.
-    **{gbans}** Globally banned users.
-    **{filters_count}** Filters, Across **{filters_chats_count}** chats.
-    **{blacklist_filters_count}** Blacklist Filters, Across **{blacklist_filters_chats_count}** chats.
-    **{notes_count}** Notes, Across **{notes_chats_count}** chats.
-    **{warns_count}** Warns, Across **{warns_chats_count}** chats.
-    **{karmas_count}** Karma, Across **{karmas_chats_count}** chats.
-    **{served_users}** Users, Across **{served_chats}** chats.
-    **{total_users}** Total users in chats.
-    **{developers}** Developers And **{commits}** Commits On **[Github]({rurl})**.
+**📊 Global Stats of {BOT_NAME}:**
 
-**Global Stats of {USERBOT_NAME}**:
-    **{total_ub} Dialogs.**
-    **{groups_ub} Groups Joined.**
-    **{channels_ub} Channels Joined.**
-    **{bots_ub} Bots.**
-    **{privates_ub} Users.**
+**Modules:** {modules_count}
+**Inline Modules:** {len(keywords_list)}
+**RSS Feeds:** {rss_count}
+**Global Bans:** {gbans}
+**Filters:** {filters_count} across {filters_chats_count} chats
+**Blacklist Filters:** {blacklist_filters_count} across {blacklist_filters_chats_count} chats
+**Notes:** {notes_count} across {notes_chats_count} chats
+**Warns:** {warns_count} across {warns_chats_count} chats
+**Karma:** {karmas_count} across {karmas_chats_count} chats
+**Users:** {served_users} across {served_chats} chats
+**Total Members in Chats:** {total_users}
+**Developers:** {developers} | **Commits:** {commits} [GitHub]({rurl})
+
+**🤖 Userbot Stats ({USERBOT_NAME}):**
+**Total Dialogs:** {total_ub}
+**Groups Joined:** {groups_ub}
+**Channels Joined:** {channels_ub}
+**Bots:** {bots_ub}
+**Private Chats:** {privates_ub}
 """
     await m.edit(msg, disable_web_page_preview=True)
