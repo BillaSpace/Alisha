@@ -74,44 +74,49 @@ DISK: {disk}%
 @capture_err
 async def ban_globally(_, message):
     user_id, reason = await extract_user_and_reason(message)
-    user = await app.get_users(user_id)
-    from_user = message.from_user
 
     if not user_id:
         return await message.reply_text("I can't find that user.")
     if not reason:
         return await message.reply("No reason provided.")
 
-    if user_id in [from_user.id, BOT_ID] or user_id in SUDOERS:
+    try:
+        user = await app.get_users(int(user_id))
+    except Exception:
+        return await message.reply_text("Invalid user, unable to fetch details.")
+
+    from_user = message.from_user
+
+    if user.id in [from_user.id, BOT_ID] or user.id in SUDOERS:
         return await message.reply_text("I can't ban that user.")
 
     served_chats = await get_served_chats()
     m = await message.reply_text(
-        f"**Banning {user.mention} Globally!**"
-        + f" **This Action Should Take About {len(served_chats)} Seconds.**"
+        f"**Banning {user.mention} Globally!**\n"
+        f"**This Action Should Take About {len(served_chats)} Seconds.**"
     )
 
-    await add_gban_user(user_id)
+    await add_gban_user(user.id)
     number_of_chats = 0
 
     for served_chat in served_chats:
         try:
-            chat_id = int(served_chat["group_id"])  # fixed: use group_id
+            chat_id = int(served_chat.get("group_id") or served_chat.get("chat_id"))
             chat_member = await app.get_chat_member(chat_id, user.id)
             if chat_member.status == ChatMemberStatus.MEMBER:
                 await app.ban_chat_member(chat_id, user.id)
                 number_of_chats += 1
             await asyncio.sleep(1)
         except FloodWait as e:
-            await asyncio.sleep(int(e.value))
+            await asyncio.sleep(e.value)
         except Exception:
             pass
 
     try:
         await app.send_message(
             user.id,
-            f"Hello, You have been globally banned by {from_user.mention},"
-            + " You can appeal for this ban by talking to them.",
+            f"Hello, You have been globally banned by {from_user.mention}.\n"
+            "You can appeal for this ban by contacting them.",
         )
     except Exception:
         pass
@@ -123,9 +128,10 @@ __**New Global Ban**__
 **Origin:** {message.chat.title} [`{message.chat.id}`]
 **Admin:** {from_user.mention}
 **Banned User:** {user.mention}
-**Banned User ID:** `{user_id}`
+**Banned User ID:** `{user.id}`
 **Reason:** __{reason}__
-**Chats Affected:** `{number_of_chats}`"""
+**Chats Affected:** `{number_of_chats}`
+"""
 
     try:
         m2 = await app.send_message(
@@ -149,15 +155,39 @@ async def unban_globally(_, message):
     user_id = await extract_user(message)
     if not user_id:
         return await message.reply_text("I can't find that user.")
-    user = await app.get_users(user_id)
+
+    try:
+        user = await app.get_users(int(user_id))
+    except Exception:
+        return await message.reply_text("Invalid user.")
 
     is_gbanned = await is_gbanned_user(user.id)
     if not is_gbanned:
-        await message.reply_text("I don't remember Gbanning them.")
-    else:
-        await remove_gban_user(user.id)
-        await message.reply_text(f"✅ Lifted {user.mention}'s Global Ban.")
+        return await message.reply_text("I don't remember Gbanning them.")
 
+    await remove_gban_user(user.id)
+    await message.reply_text(f"✅ Lifted {user.mention}'s Global Ban.")
+
+
+@app.on_message(filters.command("gbanlist") & SUDOERS)
+@capture_err
+async def gban_list(_, message):
+    count = await get_gbans_count()
+    if count == 0:
+        return await message.reply_text("There are no globally banned users.")
+
+    msg = "**Globally Banned Users:**\n"
+    async for user in gbansdb.find({}):
+        user_id = user["_id"]
+        msg += f"• `{user_id}`\n"
+
+    if len(msg) > 4096:
+        with open("gbanlist.txt", "w") as f:
+            f.write(msg)
+        await message.reply_document("gbanlist.txt")
+        os.remove("gbanlist.txt")
+    else:
+        await message.reply_text(msg)
 
 @app.on_message(filters.command("gupdate") & SUDOERS)
 async def update_restart(_, message):
