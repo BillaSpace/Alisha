@@ -46,7 +46,7 @@ async def broadcast_message(_, message):
     if not reply_message:
         return await message.reply_text("Reply to a message to broadcast it.")
 
-    # Fetch users and chats
+    # Fetch data
     users = await get_served_users()
     chats = await get_served_chats()
 
@@ -55,12 +55,12 @@ async def broadcast_message(_, message):
     chat_ids = sorted(set(cid for c in chats if (cid := safe_get_id(c, "group_id"))))
 
     # Determine broadcast targets
-    if mode == "all":
-        targets = user_ids + chat_ids
-    elif mode == "users":
+    if mode == "users":
         targets = user_ids
     elif mode == "chats":
         targets = chat_ids
+    elif mode == "all":
+        targets = user_ids + chat_ids
     else:
         return await message.reply_text(BROADCAST_USAGE)
 
@@ -69,7 +69,6 @@ async def broadcast_message(_, message):
 
     total_users = len(user_ids)
     total_chats = len(chat_ids)
-    total_targets = len(targets)
 
     m = await message.reply_text(
         f"📢 **Starting broadcast...**\n"
@@ -80,7 +79,7 @@ async def broadcast_message(_, message):
 
     sent = failed = 0
     invalid = set()
-    progress_update_interval = 50  # every 50 broadcast shows ongoing progress
+    progress_update_interval = 50
 
     async def send_to_target(target_id):
         nonlocal sent, failed
@@ -115,7 +114,7 @@ async def broadcast_message(_, message):
             await send_to_target(tid)
             await asyncio.sleep(0.2)
 
-    # broadcast only to intended list
+    # Broadcast only to the intended list
     await asyncio.gather(*(sem_task(tid) for tid in targets))
 
     result_msg = (
