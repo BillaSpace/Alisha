@@ -26,4 +26,6 @@ img2pdf~=0.5.1
 telegraph~=2.2.0
 pytube~=15.0.0
 pytz~=2024.1
-kurigram==2.2.12
+kurigram==2.2.13
+httpx[http2]==0.27.2
+pymongo
