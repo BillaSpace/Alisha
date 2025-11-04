@@ -44,8 +44,6 @@ from wbb.core.decorators.errors import capture_err
 from wbb.utils import formatter
 from wbb.utils.dbfunctions import (
     add_gban_user,
-    get_served_chats,
-    get_served_users,
     is_gbanned_user,
     remove_gban_user,
 )
@@ -166,10 +164,6 @@ __**New Global Ban**__
             "User Gbanned, But This Gban Action Wasn't Logged, Add Me In GBAN_LOG_GROUP"
         )
 
-
-# Ungban
-
-
 @app.on_message(filters.command("ungban") & SUDOERS)
 @capture_err
 async def unban_globally(_, message):
@@ -184,43 +178,6 @@ async def unban_globally(_, message):
     else:
         await remove_gban_user(user.id)
         await message.reply_text(f"Lifted {user.mention}'s Global Ban.'")
-
-
-# Broadcast
-
-
-@app.on_message(filters.command("broadcast") & SUDOERS)
-@capture_err
-async def broadcast_message(_, message):
-    sleep_time = 0.1
-    reply_message = message.reply_to_message
-    if not reply_message:
-        return await message.reply_text("Reply to a message to broadcast it")
-        
-    sent = 0
-    schats = await get_served_chats()
-    chats = [int(chat["chat_id"]) for chat in schats]
-    m = await message.reply_text(
-        f"Broadcast in progress, will take {len(chats) * sleep_time} seconds."
-    )
-    to_copy = not reply_message.poll
-    for i in chats:
-        try:
-            if to_copy:
-                await reply_message.copy(i)
-            else:
-                await reply_message.forward(i)
-            sent += 1
-            await asyncio.sleep(sleep_time)
-        except FloodWait as e:
-            await asyncio.sleep(int(e.value))
-        except Exception:
-            pass
-    await m.edit(f"**Broadcasted Message In {sent} Chats.**")
-
-
-# Update
-
 
 @app.on_message(filters.command("update") & SUDOERS)
 async def update_restart(_, message):
@@ -243,34 +200,3 @@ async def update_restart(_, message):
         "**Bot is restarting now.**"
     )
     await restart(m)
-
-
-@app.on_message(filters.command("ubroadcast") & SUDOERS)
-@capture_err
-async def broadcast_message(_, message):
-    sleep_time = 0.1
-    sent = 0
-    schats = await get_served_users()
-    chats = [int(chat["user_id"]) for chat in schats]
-    reply_message = message.reply_to_message
-    if not reply_message:
-        return await message.reply_text("Reply to a message to broadcast it")
-
-    m = await message.reply_text(
-        f"Broadcast in progress, will take {len(chats) * sleep_time} seconds."
-    )
-
-    to_copy = not reply_message.poll
-    for i in chats:
-        try:
-            if to_copy:
-                await reply_message.copy(i)
-            else:
-                await reply_message.forward(i)
-            sent += 1
-            await asyncio.sleep(sleep_time)
-        except FloodWait as e:
-            await asyncio.sleep(int(e.value))
-        except Exception:
-            pass
-    await m.edit(f"**Broadcasted Message to {sent} Users.**")
