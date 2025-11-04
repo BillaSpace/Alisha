@@ -81,31 +81,42 @@ __HELP__ = """/ban - Ban A User
 /invite - Send Group/SuperGroup Invite Link."""
 
 
+from pyrogram.errors import ChatAdminRequired, UserNotParticipant
+
 async def member_permissions(chat_id: int, user_id: int):
     perms = []
-    member = (await app.get_chat_member(chat_id, user_id)).privileges
-    if not member:
+    try:
+        member = await app.get_chat_member(chat_id, user_id)
+    except (ChatAdminRequired, UserNotParticipant):
+        # Bot isn't admin or user not found in chat
         return []
-    if member.can_post_messages:
+    except Exception:
+        # Any other Telegram error
+        return []
+
+    privileges = getattr(member, "privileges", None)
+    if not privileges:
+        return []
+
+    if privileges.can_post_messages:
         perms.append("can_post_messages")
-    if member.can_edit_messages:
+    if privileges.can_edit_messages:
         perms.append("can_edit_messages")
-    if member.can_delete_messages:
+    if privileges.can_delete_messages:
         perms.append("can_delete_messages")
-    if member.can_restrict_members:
+    if privileges.can_restrict_members:
         perms.append("can_restrict_members")
-    if member.can_promote_members:
+    if privileges.can_promote_members:
         perms.append("can_promote_members")
-    if member.can_change_info:
+    if privileges.can_change_info:
         perms.append("can_change_info")
-    if member.can_invite_users:
+    if privileges.can_invite_users:
         perms.append("can_invite_users")
-    if member.can_pin_messages:
+    if privileges.can_pin_messages:
         perms.append("can_pin_messages")
-    if member.can_manage_video_chats:
+    if privileges.can_manage_video_chats:
         perms.append("can_manage_video_chats")
     return perms
-
 
 from wbb.core.decorators.permissions import adminsOnly
 
