@@ -102,25 +102,38 @@ async def get_chat_info(chat, already=False):
 async def info_func(_, message: Message):
     if message.reply_to_message:
         user = message.reply_to_message.from_user.id
-    elif not message.reply_to_message and len(message.command) == 1:
+    elif len(message.command) == 1:
         user = message.from_user.id
-    elif not message.reply_to_message and len(message.command) != 1:
+    else:
         user = message.text.split(None, 1)[1]
 
-    m = await message.reply_text("Processing")
+    m = await message.reply_text("Processing...")
 
     try:
+        # Try to parse user to integer (user ID), fallback to username
+        if isinstance(user, str) and user.startswith("@"):
+            user = user[1:]
+        if not str(user).isdigit():
+            try:
+                user = (await app.get_users(user)).id
+            except Exception as e:
+                await m.edit(f"Couldn't resolve user: {e}")
+                return
+        else:
+            user = int(user)
+
         info_caption, photo_id = await get_user_info(user)
+
+        if not photo_id:
+            return await m.edit(info_caption, disable_web_page_preview=True)
+
+        photo = await app.download_media(photo_id)
+        await message.reply_photo(photo, caption=info_caption, quote=False)
+        await m.delete()
+        os.remove(photo)
+
     except Exception as e:
-        return await m.edit(f"{str(e)}, Perhaps you meant to use /chat_info ?")
-
-    if not photo_id:
-        return await m.edit(info_caption, disable_web_page_preview=True)
-    photo = await app.download_media(photo_id)
-
-    await message.reply_photo(photo, caption=info_caption, quote=False)
-    await m.delete()
-    os.remove(photo)
+        await m.edit(f"{str(e)}\n\nPerhaps you meant to use /chat_info ?")
 
 
 @app.on_message(filters.command("chat_info"))
