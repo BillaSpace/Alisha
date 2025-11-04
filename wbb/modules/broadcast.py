@@ -1,10 +1,9 @@
 import asyncio
 from pyrogram import filters
 from pyrogram.errors import FloodWait, Forbidden
-from wbb import app
+from wbb import app, SUDOERS
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.dbfunctions import get_served_chats, get_served_users
-from wbb import SUDOERS
 
 BROADCAST_USAGE = """⚠️ Usage: /broadcast [all|users|chats] [copy]
 • all: Broadcast to all users and groups
@@ -34,10 +33,11 @@ async def broadcast_message(_, message):
     users = await get_served_users()
     chats = await get_served_chats()
 
-    user_ids = [int(u["_id"]) for u in users]
-    chat_ids = [int(c["group_id"]) for c in chats]
+    # ✅ Convert ObjectId safely
+    user_ids = [int(str(u.get("_id"))) for u in users if "_id" in u]
+    chat_ids = [int(str(c.get("group_id"))) for c in chats if "group_id" in c]
 
-    targets = []
+    # Select target groups
     if mode == "all":
         targets = user_ids + chat_ids
     elif mode == "users":
@@ -75,7 +75,6 @@ async def broadcast_message(_, message):
         except Exception:
             failed += 1
 
-    # Run concurrently (limit = 20 to prevent overload)
     sem = asyncio.Semaphore(20)
 
     async def sem_task(tid):
@@ -111,7 +110,7 @@ async def user_broadcast(_, message):
     to_copy = "copy" in message.text.lower()
 
     users = await get_served_users()
-    user_ids = [int(u["_id"]) for u in users]
+    user_ids = [int(str(u.get("_id"))) for u in users if "_id" in u]
 
     if not user_ids:
         return await message.reply_text("No users found in database.")
