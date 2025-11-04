@@ -32,7 +32,7 @@ HELPABLE = {}
 START_PIC = "https://files.catbox.moe/pe8llc.jpg"
 
 START_TEXT = f"""
-<blockquote><b>Hello! I'm [{BOT_NAME}]({START_PIC}) — Your All-in-One Telegram Assistant.</b></blockquote>
+<blockquote><b>Hello! I'm {BOT_NAME} — Your All-in-One Telegram Assistant.</b></blockquote>
 
 <blockquote>• Advanced VC Music & Smart Group Management Bot</blockquote>
 <blockquote>• Real Humanoid AI Chatbot • Anti-Spam • Auto Moderation</blockquote>
