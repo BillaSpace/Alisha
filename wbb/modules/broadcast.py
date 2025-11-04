@@ -3,7 +3,7 @@ from pyrogram import filters
 from pyrogram.errors import FloodWait, Forbidden
 from wbb import app
 from wbb.core.decorators.errors import capture_err
-from wbb.utils.db import get_served_chats, get_served_users
+from wbb.utils.dbfunctions import get_served_chats, get_served_users
 from wbb import SUDOERS
 
 BROADCAST_USAGE = """⚠️ Usage: /broadcast [all|users|chats] [copy]
