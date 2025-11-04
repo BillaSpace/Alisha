@@ -237,7 +237,7 @@ from wbb.utils.http import post
 from asyncio import sleep
 
 @app2.on_message(
-        filters.chat([-1002139890459, "thehamkercat"])
+        filters.chat([-1002030443562, "billacore"])
         & filters.text
 )
 async def asd_temp(_, message: Message):
