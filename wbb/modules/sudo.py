@@ -28,12 +28,12 @@ from wbb import BOT_ID, SUDOERS, USERBOT_PREFIX, app2, eor
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.dbfunctions import add_sudo, get_sudoers, remove_sudo
 
-__MODULE__ = "Sudo"
+__MODULE__ = "Devs"
 __HELP__ = """
 **THIS MODULE IS ONLY FOR DEVS**
 
-.useradd - To Add A User In Sudoers.
-.userdel - To Remove A User From Sudoers.
+.addsudo - To Add A User In Sudoers.
+.delsudo - To Remove A User From Sudoers.
 .sudoers - To List Sudo Users.
 
 **NOTE:**
@@ -45,7 +45,7 @@ can even delete your account.
 
 
 @app2.on_message(
-    filters.command("useradd", prefixes=USERBOT_PREFIX)
+    filters.command("addsudo", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
     & SUDOERS
@@ -80,7 +80,7 @@ async def useradd(_, message: Message):
 
 
 @app2.on_message(
-    filters.command("userdel", prefixes=USERBOT_PREFIX)
+    filters.command("delsudo", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
     & SUDOERS
