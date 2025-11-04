@@ -248,7 +248,7 @@ async def asd_temp(_, message: Message):
     HISTORY.append({"role": "user", "content": text})
 
     response = await post(
-             "http://localhost:1234/v1/chat/completions",
+             "https://arq.hamker.dev/v1/chat/completions",
              headers={"Content-Type": "application/json"},
              json={
                  "messages": HISTORY,
