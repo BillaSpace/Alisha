@@ -1,161 +1,156 @@
-"""
-MIT License
-
-Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-
-import datetime
 import os
-from asyncio import get_running_loop
-from functools import partial
-from io import BytesIO
-
+import re
+import aiohttp
+import asyncio
+import ffmpeg
+import secrets
 from pyrogram import filters
-from pytube import YouTube
-from requests import get
-
-from wbb import aiohttpsession as session
-from wbb import app, arq
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
+from wbb import app
 from wbb.core.decorators.errors import capture_err
-from wbb.utils.pastebin import paste
+
+SAAVN_API = "http://saavnapi-nine.vercel.app/result?query="
+TEMP_DIR = "downloads"
+if not os.path.exists(TEMP_DIR):
+    os.mkdir(TEMP_DIR)
+
+# Temporary cache for callback lookups
+app.song_cache = {}
 
 __MODULE__ = "Music"
 __HELP__ = """
-/ytmusic [link] To Download Music From Various Websites Including Youtube. [SUDOERS]
-/saavn [query] To Download Music From Saavn.
-/lyrics [query] To Get Lyrics Of A Song.
+/song [link] To Download Music From Various Websites.
+/music [query] To Download Music From Saavn.
 """
 
-is_downloading = False
 
+# ------------------------- /song or /music command -------------------------
 
-def download_youtube_audio(arq_resp):
-    r = arq_resp.result[0]
-
-    title = r.title
-    performer = r.channel
-
-    m, s = r.duration.split(":")
-    duration = int(
-        datetime.timedelta(minutes=int(m), seconds=int(s)).total_seconds()
-    )
-
-    if duration > 1800:
-        return
-
-    thumb = get(r.thumbnails[0]).content
-    with open("thumbnail.png", "wb") as f:
-        f.write(thumb)
-    thumbnail_file = "thumbnail.png"
-
-    url = f"https://youtube.com{r.url_suffix}"
-    yt = YouTube(url)
-    audio = yt.streams.filter(only_audio=True).get_audio_only()
-
-    out_file = audio.download()
-    base, _ = os.path.splitext(out_file)
-    audio_file = base + ".mp3"
-    os.rename(out_file, audio_file)
-
-    return [title, performer, duration, audio_file, thumbnail_file]
-
-
-@app.on_message(filters.command("ytmusic"))
+@app.on_message(filters.command(["song", "music"]))
 @capture_err
-async def music(_, message):
-    global is_downloading
+async def saavn_search(_, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("/ytmusic needs a query as argument")
+        return await message.reply_text("**Usage:** /song <song name>")
+    query = message.text.split(None, 1)[1]
+    m = await message.reply_text(f"🔎 Searching for **{query}** ...")
 
-    url = message.text.split(None, 1)[1]
-    if is_downloading:
-        return await message.reply_text(
-            "Another download is in progress, try again after sometime."
-        )
-    is_downloading = True
-    m = await message.reply_text(
-        f"Downloading {url}", disable_web_page_preview=True
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{SAAVN_API}{query}&lyrics=false") as resp:
+            if resp.status != 200:
+                return await m.edit("⚠️ API Error. Try again later.")
+            results = await resp.json()
+
+    if not results:
+        return await m.edit("❌ No results found.")
+
+    buttons = []
+    for song in results[:5]:
+        sid = secrets.token_hex(3)  # 6-character ID
+        title = re.sub(r"&(?:quot|amp|#39);", "", song.get("song", "Unknown"))
+        artist = re.sub(r"&(?:quot|amp|#39);", "", song.get("singers", "Unknown Artist"))
+        app.song_cache[sid] = {
+            "title": title,
+            "artist": artist,
+            "media_url": song["media_url"],
+            "image": song["image"],
+            "duration": song["duration"]
+        }
+        buttons.append([InlineKeyboardButton(f"{title} - {artist}", callback_data=f"song_{sid}")])
+
+    await m.edit(
+        "**🎵 Select a song below:**",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
-    try:
-        loop = get_running_loop()
-        arq_resp = await arq.youtube(url)
-        music = await loop.run_in_executor(
-            None, partial(download_youtube_audio, arq_resp)
-        )
-
-        if not music:
-            return await message.reply_text("[ERROR]: MUSIC TOO LONG")
-        (
-            title,
-            performer,
-            duration,
-            audio_file,
-            thumbnail_file,
-        ) = music
-    except Exception as e:
-        is_downloading = False
-        return await m.edit(str(e))
-    await message.reply_audio(
-        audio_file,
-        duration=duration,
-        performer=performer,
-        title=title,
-        thumb=thumbnail_file,
-    )
-    await m.delete()
-    os.remove(audio_file)
-    os.remove(thumbnail_file)
-    is_downloading = False
 
 
-async def download_song(url):
-    async with session.get(url) as resp:
-        song = await resp.read()
-    song = BytesIO(song)
-    song.name = "a.mp3"
-    return song
+# ------------------------- Song selection handler -------------------------
 
+@app.on_callback_query(filters.regex(r"^song_[0-9a-f]+$"))
+async def choose_quality(_, query: CallbackQuery):
+    sid = query.data.split("_")[1]
+    song = app.song_cache.get(sid)
+    if not song:
+        return await query.answer("Song expired or invalid.", show_alert=True)
 
-# Lyrics
-
-
-@app.on_message(filters.command("lyrics"))
-async def lyrics_func(_, message):
-    if len(message.command) < 2:
-        return await message.reply_text("**Usage:**\n/lyrics [QUERY]")
-    m = await message.reply_text("**Searching**")
-    query = message.text.strip().split(None, 1)[1]
-
-    resp = await arq.lyrics(query)
-
-    if not (resp.ok and resp.result):
-        return await m.edit("No lyrics found.")
-
-    song = resp.result[0]
-    song_name = song["song"]
+    title = song["title"]
     artist = song["artist"]
-    lyrics = song["lyrics"]
-    msg = f"**{song_name}** | **{artist}**\n\n__{lyrics}__"
 
-    if len(msg) > 4095:
-        msg = await paste(msg)
-        msg = f"**LYRICS_TOO_LONG:** [URL]({msg})"
-    return await m.edit(msg)
+    buttons = [
+        [
+            InlineKeyboardButton("🎧 320 kbps", callback_data=f"quality_{sid}_320"),
+            InlineKeyboardButton("🍎 ALAC (.m4a)", callback_data=f"quality_{sid}_alac"),
+        ]
+    ]
+    await query.message.edit_text(
+        f"🎵 **{title}** - {artist}\n\nChoose your preferred quality:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+# ------------------------- Quality selection handler -------------------------
+
+@app.on_callback_query(filters.regex(r"^quality_[0-9a-f]+_"))
+async def download_and_send(_, query: CallbackQuery):
+    parts = query.data.split("_")
+    sid, quality = parts[1], parts[2]
+    data = app.song_cache.get(sid)
+
+    if not data:
+        return await query.answer("Request expired.", show_alert=True)
+
+    title = data["title"]
+    artist = data["artist"]
+    media_url = data["media_url"]
+    thumb = data["image"]
+    duration = int(data["duration"])
+    performer = "Alisha Ai"
+
+    await query.message.edit_text(f"⬇️ Downloading **{title}** ...")
+
+    file_path = os.path.join(TEMP_DIR, f"{sid}.m4a")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(media_url) as resp:
+            if resp.status != 200:
+                return await query.message.edit_text("Failed to fetch media file.")
+            with open(file_path, "wb") as f:
+                f.write(await resp.read())
+
+    # Convert to ALAC if selected
+    if quality == "alac":
+        await query.message.edit_text("🎚️ Converting to ALAC (Apple Lossless)...")
+        alac_path = os.path.join(TEMP_DIR, f"{sid}_alac.m4a")
+        try:
+            (
+                ffmpeg
+                .input(file_path)
+                .output(alac_path, acodec="alac", loglevel="quiet")
+                .run(overwrite_output=True)
+            )
+            os.remove(file_path)
+            file_path = alac_path
+        except Exception as e:
+            return await query.message.edit_text(f"Conversion failed: {e}")
+
+    await query.message.reply_audio(
+        audio=file_path,
+        title=title,
+        performer=performer,
+        duration=duration,
+        thumb=thumb,
+        caption=f"🎶 **{title}**\n👩‍💻 Performer: {performer}\n\n⚠️ Auto-deletes in 5 minutes.",
+    )
+
+    await query.message.edit_text("✅ Sent successfully!")
+
+    # Schedule cleanup
+    async def cleanup():
+        await asyncio.sleep(300)
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        if sid in app.song_cache:
+            del app.song_cache[sid]
+
+    asyncio.create_task(cleanup())
