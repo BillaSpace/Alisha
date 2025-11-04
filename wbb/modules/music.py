@@ -16,6 +16,19 @@ if not os.path.exists(TEMP_DIR):
 
 app.song_cache = {}  # cache for callback data
 
+__MODULE__ = "Music"
+__HELP__ = """
+/play [song name or link] to play songs/playlist in Groups/channels Vc
+/vplay to play videos on vc
+/skip to skip the songs
+/seek [duration in seconds] to forward songs 
+/seekback [time in seconds] to rewind the current track
+/loop [value] repeats current songs in vc eg. /loop 2 
+/song [query] To Download Music From Various Websites.
+/music [query] To Download Music From Saavn.
+"""
+
+
 
 # Clean titles (remove HTML entities)
 def clean_text(text: str) -> str:
