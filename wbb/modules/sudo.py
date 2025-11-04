@@ -32,18 +32,17 @@ __MODULE__ = "Devs"
 __HELP__ = """
 **THIS MODULE IS ONLY FOR DEVS**
 
-.addsudo - To Add A User In Sudoers.
-.delsudo - To Remove A User From Sudoers.
-.sudoers - To List Sudo Users.
+.addsudo - Add a user to sudoers.
+.delsudo - Remove a user from sudoers.
+.sudoers - List all sudo users.
 
 **NOTE:**
-
-Never add anyone to sudoers unless you trust them,
-sudo users can do anything with your account, they
-can even delete your account.
+Never add anyone to sudoers unless you trust them.
+Sudo users can run any Shell commands with your bot / UB account or may delete them.
 """
 
 
+# Add a user to sudoers
 @app2.on_message(
     filters.command("addsudo", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
@@ -53,32 +52,28 @@ can even delete your account.
 @capture_err
 async def useradd(_, message: Message):
     if not message.reply_to_message:
-        return await eor(
-            message,
-            text="Reply to someone's message to add him to sudoers.",
-        )
-    user_id = message.reply_to_message.from_user.id
-    umention = (await app2.get_users(user_id)).mention
-    sudoers = await get_sudoers()
+        return await eor(message, text="Reply to a user's message to add them to sudoers.")
 
-    if user_id in sudoers:
-        return await eor(message, text=f"{umention} is already in sudoers.")
+    user = message.reply_to_message.from_user
+    user_id = user.id
+    mention = user.mention or user.first_name
+
     if user_id == BOT_ID:
-        return await eor(
-            message, text="You can't add assistant bot in sudoers."
-        )
+        return await eor(message, text="You can't add the assistant bot to sudoers.")
 
-    await add_sudo(user_id)
+    sudoers = await get_sudoers()
+    if user_id in sudoers:
+        return await eor(message, text=f"{mention} is already a sudo user.")
 
-    if user_id not in SUDOERS:
+    try:
+        await add_sudo(user_id)
         SUDOERS.add(user_id)
-
-    await eor(
-        message,
-        text=f"Successfully added {umention} in sudoers.",
-    )
+        await eor(message, text=f"✅ Successfully added {mention} to sudoers.")
+    except Exception as e:
+        await eor(message, text=f"⚠️ Failed to add sudo user.\nError: `{e}`")
 
 
+# Remove a user from sudoers
 @app2.on_message(
     filters.command("delsudo", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
@@ -88,27 +83,26 @@ async def useradd(_, message: Message):
 @capture_err
 async def userdel(_, message: Message):
     if not message.reply_to_message:
-        return await eor(
-            message,
-            text="Reply to someone's message to remove him to sudoers.",
-        )
-    user_id = message.reply_to_message.from_user.id
-    umention = (await app2.get_users(user_id)).mention
+        return await eor(message, text="Reply to a user's message to remove them from sudoers.")
 
-    if user_id not in await get_sudoers():
-        return await eor(message, text=f"{umention} is not in sudoers.")
+    user = message.reply_to_message.from_user
+    user_id = user.id
+    mention = user.mention or user.first_name
 
-    await remove_sudo(user_id)
+    sudoers = await get_sudoers()
+    if user_id not in sudoers:
+        return await eor(message, text=f"{mention} is not in sudoers.")
 
-    if user_id in SUDOERS:
-        SUDOERS.remove(user_id)
-
-    await eor(
-        message,
-        text=f"Successfully removed {umention} from sudoers.",
-    )
+    try:
+        await remove_sudo(user_id)
+        if user_id in SUDOERS:
+            SUDOERS.remove(user_id)
+        await eor(message, text=f"✅ Successfully removed {mention} from sudoers.")
+    except Exception as e:
+        await eor(message, text=f"⚠️ Failed to remove sudo user.\nError: `{e}`")
 
 
+#  List sudo users
 @app2.on_message(
     filters.command("sudoers", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
@@ -118,16 +112,20 @@ async def userdel(_, message: Message):
 @capture_err
 async def sudoers_list(_, message: Message):
     sudoers = await get_sudoers()
-    text = ""
-    j = 0
+    if not sudoers:
+        return await eor(message, text="No sudo users found.")
+
+    text = "**🛠️ Sudo Users:**\n\n"
+    i = 1
+
     for user_id in sudoers:
         try:
             user = await app2.get_users(user_id)
-            user = user.first_name if not user.mention else user.mention
-            j += 1
+            text += f"{i}. {user.mention if user.mention else user.first_name}\n"
+            i += 1
         except Exception:
+            text += f"{i}. [User ID: `{user_id}`]\n"
+            i += 1
             continue
-        text += f"{j}. {user}\n"
-    if text == "":
-        return await eor(message, text="No sudoers found.")
+
     await eor(message, text=text)
