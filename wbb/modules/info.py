@@ -34,6 +34,7 @@ __MODULE__ = "Info"
 __HELP__ = """
 /info [USERNAME|ID] - Get info about a user.
 /chat_info [USERNAME|ID] - Get info about a chat.
+/id - Get your ID and chat ID (and replied user's ID if used in reply).
 """
 
 
@@ -129,7 +130,7 @@ async def chat_info_func(_, message: Message):
         chat = message.chat.id
         if chat == message.from_user.id:
             return await message.reply_text(
-                "**Usage:**/chat_info [USERNAME|ID]"
+                "**Usage:** /chat_info [USERNAME|ID]"
             )
     else:
         chat = splited[1]
@@ -147,3 +148,30 @@ async def chat_info_func(_, message: Message):
         os.remove(photo)
     except Exception as e:
         await m.edit(e)
+
+
+@app.on_message(filters.command("id"))
+async def id_func(_, message: Message):
+    if message.reply_to_message:
+        from_user = message.from_user
+        reply_user = message.reply_to_message.from_user
+        chat_id = message.chat.id
+
+        body = {
+            "Your ID": from_user.id,
+            "Replied User ID": reply_user.id,
+            "Chat ID": chat_id,
+        }
+        caption = section("ID Info", body)
+        return await message.reply_text(caption, disable_web_page_preview=True)
+
+    else:
+        from_user = message.from_user
+        chat_id = message.chat.id
+
+        body = {
+            "Your ID": from_user.id,
+            "Chat ID": chat_id,
+        }
+        caption = section("ID Info", body)
+        return await message.reply_text(caption, disable_web_page_preview=True)
