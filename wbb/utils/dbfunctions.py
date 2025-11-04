@@ -38,9 +38,9 @@ notesdb = db.notes
 filtersdb = db.filters
 warnsdb = db.warns
 karmadb = db.karma
-chatsdb = db.chats
 usersdb = db.users
-gbansdb = db.gban
+chatsdb = db.groups
+gbansdb = db.globalbans
 coupledb = db.couple
 captchadb = db.captcha
 solved_captcha_db = db.solved_captcha
@@ -348,15 +348,13 @@ async def karma_off(chat_id: int):
 
 
 async def is_served_chat(chat_id: int) -> bool:
-    chat = await chatsdb.find_one({"chat_id": chat_id})
-    if not chat:
-        return False
-    return True
+    chat = await chatsdb.find_one({"group_id": chat_id})
+    return bool(chat)
 
 
 async def get_served_chats() -> list:
     chats_list = []
-    async for chat in chatsdb.find({"chat_id": {"$lt": 0}}):
+    async for chat in chatsdb.find():
         chats_list.append(chat)
     return chats_list
 
@@ -365,26 +363,24 @@ async def add_served_chat(chat_id: int):
     is_served = await is_served_chat(chat_id)
     if is_served:
         return
-    return await chatsdb.insert_one({"chat_id": chat_id})
+    return await chatsdb.insert_one({"group_id": chat_id})
 
 
 async def remove_served_chat(chat_id: int):
     is_served = await is_served_chat(chat_id)
     if not is_served:
         return
-    return await chatsdb.delete_one({"chat_id": chat_id})
+    return await chatsdb.delete_one({"group_id": chat_id})
 
 
 async def is_served_user(user_id: int) -> bool:
-    user = await usersdb.find_one({"user_id": user_id})
-    if not user:
-        return False
-    return True
+    user = await usersdb.find_one({"_id": user_id})
+    return bool(user)
 
 
 async def get_served_users() -> list:
     users_list = []
-    async for user in usersdb.find({"user_id": {"$gt": 0}}):
+    async for user in usersdb.find():
         users_list.append(user)
     return users_list
 
@@ -393,32 +389,30 @@ async def add_served_user(user_id: int):
     is_served = await is_served_user(user_id)
     if is_served:
         return
-    return await usersdb.insert_one({"user_id": user_id})
+    return await usersdb.insert_one({"_id": user_id})
 
 
 async def get_gbans_count() -> int:
-    return len([i async for i in gbansdb.find({"user_id": {"$gt": 0}})])
+    return await gbansdb.count_documents({})
 
 
 async def is_gbanned_user(user_id: int) -> bool:
-    user = await gbansdb.find_one({"user_id": user_id})
-    if not user:
-        return False
-    return True
+    user = await gbansdb.find_one({"_id": user_id})
+    return bool(user)
 
 
 async def add_gban_user(user_id: int):
     is_gbanned = await is_gbanned_user(user_id)
     if is_gbanned:
         return
-    return await gbansdb.insert_one({"user_id": user_id})
+    return await gbansdb.insert_one({"_id": user_id})
 
 
 async def remove_gban_user(user_id: int):
     is_gbanned = await is_gbanned_user(user_id)
     if not is_gbanned:
         return
-    return await gbansdb.delete_one({"user_id": user_id})
+    return await gbansdb.delete_one({"_id": user_id})
 
 
 async def _get_lovers(chat_id: int):
