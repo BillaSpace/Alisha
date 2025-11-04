@@ -1,6 +1,8 @@
 import asyncio
 from pyrogram import filters
 from pyrogram.errors import FloodWait, Forbidden
+from bson import ObjectId
+
 from wbb import app, SUDOERS
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.dbfunctions import get_served_chats, get_served_users
@@ -12,9 +14,30 @@ BROADCAST_USAGE = """⚠️ Usage: /broadcast [all|users|chats] [copy]
 • copy: Send as copy (no forward tag)
 """
 
-# ----------------------------
-# ✅ MAIN BROADCAST COMMAND
-# ----------------------------
+
+def safe_get_id(entry, key1, key2=None):
+    """Safely extract numeric ID from MongoDB documents."""
+    val = entry.get(key1)
+    if not val and key2:
+        val = entry.get(key2)
+    if not val:
+        return None
+    try:
+        # If it's already an int-like string, cast it
+        return int(val)
+    except (TypeError, ValueError):
+        # Try decoding if it's an ObjectId
+        try:
+            if isinstance(val, ObjectId):
+                # You can decode timestamp if you want, but it’s not a Telegram ID
+                return None
+            # Sometimes val is string form of ObjectId
+            ObjectId(val)  # validate
+            return None
+        except Exception:
+            return None
+
+
 @app.on_message(filters.command("broadcast") & SUDOERS)
 @capture_err
 async def broadcast_message(_, message):
@@ -29,15 +52,13 @@ async def broadcast_message(_, message):
     if not reply_message:
         return await message.reply_text("Reply to a message to broadcast it.")
 
-    # Collect target lists
     users = await get_served_users()
     chats = await get_served_chats()
 
-    # ✅ Convert ObjectId safely
-    user_ids = [int(str(u.get("_id"))) for u in users if "_id" in u]
-    chat_ids = [int(str(c.get("group_id"))) for c in chats if "group_id" in c]
+    # ✅ Proper ID extraction
+    user_ids = [uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))]
+    chat_ids = [cid for c in chats if (cid := safe_get_id(c, "group_id"))]
 
-    # Select target groups
     if mode == "all":
         targets = user_ids + chat_ids
     elif mode == "users":
@@ -48,7 +69,7 @@ async def broadcast_message(_, message):
         return await message.reply_text(BROADCAST_USAGE)
 
     if not targets:
-        return await message.reply_text("No targets found to broadcast.")
+        return await message.reply_text("No valid targets found to broadcast.")
 
     m = await message.reply_text(
         f"📢 Starting broadcast to {len(targets)} targets...\n"
@@ -97,9 +118,6 @@ async def broadcast_message(_, message):
     await m.edit(result_msg)
 
 
-# ----------------------------
-# ✅ UBROADCAST (USERS ONLY)
-# ----------------------------
 @app.on_message(filters.command("ubroadcast") & SUDOERS)
 @capture_err
 async def user_broadcast(_, message):
@@ -108,12 +126,11 @@ async def user_broadcast(_, message):
         return await message.reply_text("Reply to a message to broadcast it.")
 
     to_copy = "copy" in message.text.lower()
-
     users = await get_served_users()
-    user_ids = [int(str(u.get("_id"))) for u in users if "_id" in u]
 
+    user_ids = [uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))]
     if not user_ids:
-        return await message.reply_text("No users found in database.")
+        return await message.reply_text("No valid users found in database.")
 
     m = await message.reply_text(f"📢 Broadcasting to {len(user_ids)} users...")
 
