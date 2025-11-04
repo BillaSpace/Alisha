@@ -304,7 +304,6 @@ async def help_parser(name, keyboard=None):
         keyboard = InlineKeyboardMarkup(paginate_modules(0, HELPABLE, "help"))
     return (
         """Hello {first_name}, My name is {bot_name}.
-I'm a VC Music + Group Management bot powered with Real Humanoid AI features.
 You can explore available modules below or ask in our Support Group.
 """.format(
             first_name=name,
@@ -341,7 +340,6 @@ async def help_button(client, query):
     create_match = re.match(r"help_create", query.data)
     top_text = f"""
 Hello {query.from_user.first_name}, My name is {BOT_NAME}.
-I'm a VC Music + Group Management bot enhanced with Real Humanoid AI.
 You can choose an option below to see command lists or ask in Support Group.
 
 General commands:
