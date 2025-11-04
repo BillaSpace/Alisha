@@ -1,26 +1,3 @@
-"""
-MIT License
-
-Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 import asyncio
 import importlib
 import re
@@ -51,6 +28,18 @@ from wbb.utils.functions import extract_text_and_keyb
 loop = asyncio.get_event_loop()
 
 HELPABLE = {}
+
+START_PIC = "https://files.catbox.moe/pe8llc.jpg"
+
+START_TEXT = f"""
+<blockquote><b>Hello! I'm [{BOT_NAME}]({START_PIC}) — Your All-in-One Telegram Assistant.</b></blockquote>
+
+<blockquote>• Advanced VC Music & Smart Group Management Bot</blockquote>
+<blockquote>• Real Humanoid AI Chatbot • Anti-Spam • Auto Moderation</blockquote>
+<blockquote>• Anti-Nude • Powerful Feds & More</blockquote>
+
+<blockquote><b>Use the buttons below or try /help to explore all available commands!</b></blockquote>
+"""
 
 
 async def start_bot():
@@ -99,7 +88,7 @@ async def start_bot():
             )
 
         else:
-            await app.send_message(LOG_GROUP_ID, "Bot started!")
+            await app.send_message(LOG_GROUP_ID, "Alisha Ai Bot Have Been started Successfully!")
     except Exception:
         pass
 
@@ -114,59 +103,49 @@ async def start_bot():
     log.info("Dead!")
 
 
+# ================== CLEAN HOME KEYBOARD =================== #
+
 home_keyboard_pm = InlineKeyboardMarkup(
     [
         [
             InlineKeyboardButton(
-                text="Commands ❓", callback_data="bot_commands"
+                text="Commands", callback_data="bot_commands"
             ),
             InlineKeyboardButton(
-                text="Repo 🛠",
-                url="https://github.com/thehamkercat/WilliamButcherBot",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="System Stats 🖥",
+                text="Bot Stats",
                 callback_data="stats_callback",
             ),
+        ],
+        [
             InlineKeyboardButton(
-                text="Support 👨", url="http://t.me/WBBSupport"
+                text="User Help", url="https://t.me/billacore"
             ),
         ],
         [
             InlineKeyboardButton(
-                text="Add Me To Your Group 🎉",
+                text="Add Me To Your Group",
                 url=f"http://t.me/{BOT_USERNAME}?startgroup=new",
             )
         ],
     ]
 )
 
-home_text_pm = (
-    f"Hey there! My name is {BOT_NAME}. I can manage your "
-    + "group with lots of useful features, feel free to "
-    + "add me to your group."
-)
+home_text_pm = START_TEXT
 
 keyboard = InlineKeyboardMarkup(
     [
         [
             InlineKeyboardButton(
-                text="Help ❓",
+                text="Help",
                 url=f"t.me/{BOT_USERNAME}?start=help",
             ),
             InlineKeyboardButton(
-                text="Repo 🛠",
-                url="https://github.com/thehamkercat/WilliamButcherBot",
+                text="Bot Stats",
+                callback_data="stats_callback",
             ),
         ],
         [
-            InlineKeyboardButton(
-                text="System Stats 💻",
-                callback_data="stats_callback",
-            ),
-            InlineKeyboardButton(text="Support 👨", url="t.me/WBBSupport"),
+            InlineKeyboardButton(text="Support", url="https://t.me/billacore"),
         ],
     ]
 )
@@ -196,7 +175,7 @@ FED_MARKUP = InlineKeyboardMarkup(
 async def start(_, message):
     if message.chat.type != ChatType.PRIVATE:
         return await message.reply(
-            "Pm Me For More Details.", reply_markup=keyboard
+            "PM Me For More Details.", reply_markup=keyboard
         )
     if len(message.text.split()) > 1:
         user = await app.get_users(message.from_user.id)
@@ -221,8 +200,7 @@ async def start(_, message):
             else:
                 return await app.send_message(
                     user_id,
-                    "The group admins haven't set any rules for this chat yet. "
-                    "This probably doesn't mean it's lawless though...!",
+                    "The group admins haven't set any rules for this chat yet.",
                 )
         if name == "mkdwn_help":
             await message.reply(
@@ -245,7 +223,7 @@ async def start(_, message):
             await message.reply(
                 text,
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("back", callback_data="help_back")]]
+                    [[InlineKeyboardButton("Back", callback_data="help_back")]]
                 ),
                 disable_web_page_preview=True,
             )
@@ -256,9 +234,11 @@ async def start(_, message):
                 reply_markup=keyb,
             )
     else:
-        await message.reply(
-            home_text_pm,
+        await message.reply_photo(
+            START_PIC,
+            caption=home_text_pm,
             reply_markup=home_keyboard_pm,
+            parse_mode=ParseMode.HTML,
         )
     return
 
@@ -289,7 +269,7 @@ async def help_command(_, message):
                 )
         else:
             await message.reply(
-                "Pm Me For More Details.", reply_markup=keyboard
+                "PM Me For More Details.", reply_markup=keyboard
             )
     else:
         if len(message.command) >= 2:
@@ -324,9 +304,8 @@ async def help_parser(name, keyboard=None):
         keyboard = InlineKeyboardMarkup(paginate_modules(0, HELPABLE, "help"))
     return (
         """Hello {first_name}, My name is {bot_name}.
-I'm a group management bot with some useful features.
-You can choose an option below, by clicking a button.
-Also you can ask anything in Support Group.
+I'm a VC Music + Group Management bot powered with Real Humanoid AI features.
+You can explore available modules below or ask in our Support Group.
 """.format(
             first_name=name,
             bot_name=BOT_NAME,
@@ -343,7 +322,6 @@ async def commands_callbacc(_, CallbackQuery):
         text=text,
         reply_markup=keyboard,
     )
-
     await CallbackQuery.message.delete()
 
 
@@ -363,13 +341,12 @@ async def help_button(client, query):
     create_match = re.match(r"help_create", query.data)
     top_text = f"""
 Hello {query.from_user.first_name}, My name is {BOT_NAME}.
-I'm a group management bot with some useful features.
-You can choose an option below, by clicking a button.
-Also you can ask anything in Support Group.
+I'm a VC Music + Group Management bot enhanced with Real Humanoid AI.
+You can choose an option below to see command lists or ask in Support Group.
 
-General command are:
- - /start: Start the bot
- - /help: Give this message
+General commands:
+ - /start — Start the Ai bot
+ - /help — Show help menu
  """
     if mod_match:
         module = (mod_match.group(1)).replace(" ", "_")
@@ -388,7 +365,7 @@ General command are:
         await query.message.edit(
             text=text,
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("back", callback_data="help_back")]]
+                [[InlineKeyboardButton("Back", callback_data="help_back")]]
             ),
             disable_web_page_preview=True,
         )
@@ -408,7 +385,6 @@ General command are:
             ),
             disable_web_page_preview=True,
         )
-
     elif next_match:
         next_page = int(next_match.group(1))
         await query.message.edit(
@@ -418,7 +394,6 @@ General command are:
             ),
             disable_web_page_preview=True,
         )
-
     elif back_match:
         await query.message.edit(
             text=top_text,
@@ -427,7 +402,6 @@ General command are:
             ),
             disable_web_page_preview=True,
         )
-
     elif create_match:
         text, keyboard = await help_parser(query)
         await query.message.edit(
@@ -444,4 +418,4 @@ if __name__ == "__main__":
     with closing(loop):
         with suppress(asyncio.exceptions.CancelledError):
             loop.run_until_complete(start_bot())
-        loop.run_until_complete(asyncio.sleep(3.0))  # task cancel wait
+        loop.run_until_complete(asyncio.sleep(3.0))
