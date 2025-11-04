@@ -37,6 +37,22 @@ async def paste(_, message: Message):
     except Exception as e:
         await message.reply_text(f"Error: {e}")
 
+async def auto_delete(file_path: str, message: Message, delay: int = 300):
+    """Deletes the file and message after a delay (default: 5 minutes)."""
+    await asyncio.sleep(delay)
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            print(f"[AutoDelete] File {file_path} removed after {delay}s")
+        except Exception as e:
+            print(f"[AutoDelete] Failed to remove {file_path}: {e}")
+
+    try:
+        await message.delete()
+        print(f"[AutoDelete] Message deleted after {delay}s")
+    except Exception as e:
+        print(f"[AutoDelete] Failed to delete message: {e}")
+
 
 @app.on_message(filters.command("tgm"))
 @capture_err
@@ -45,28 +61,44 @@ async def tgm(_, message: Message):
 
     if not reply or not (reply.photo or reply.video or reply.document):
         return await message.reply_text(
-            "Reply to a photo, video, or document to upload to Catbox."
+            "Reply to a photo, video, or document to upload it to Catbox."
         )
 
-    m = await message.reply_text("Uploading to Catbox...")
+    m = await message.reply_text("📤 Uploading to Catbox...")
 
+    file_path = None
     try:
-        # Download the file
+        # Download the media file
         file_path = await reply.download()
         file_name = os.path.basename(file_path)
 
-        # Upload to Catbox.moe
+        # Prepare upload form for Catbox
+        form = aiohttp.FormData()
+        form.add_field("reqtype", "fileupload")
+        form.add_field("fileToUpload", open(file_path, "rb"), filename=file_name)
+
+        # Upload to Catbox
         async with aiohttp.ClientSession() as session:
-            catbox_url = "https://catbox.moe/user/api.php"
-            data = {"reqtype": "fileupload"}
-            async with session.post(catbox_url, data=data, files={"fileToUpload": open(file_path, "rb")}) as resp:
+            async with session.post("https://catbox.moe/user/api.php", data=form) as resp:
                 result = await resp.text()
 
-        await m.edit_text(f"**Uploaded:** {result}", disable_web_page_preview=False)
+        if result.startswith("https://"):
+            await m.edit_text(
+                f"Uploaded to Catbox:\n{result}\n\n"
+                f"Save this link now — it will be auto-deleted from chat in 5 minutes.",
+                link_preview_options={"is_disabled": False},
+            )
+            # Auto-delete message and file after 5 minutes
+            asyncio.create_task(auto_delete(file_path, m, delay=300))
+        else:
+            await m.edit_text(f"Upload failed:\n{result}")
 
     except Exception as e:
         await m.edit_text(f"Upload failed: {e}")
 
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
