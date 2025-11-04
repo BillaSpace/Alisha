@@ -23,6 +23,7 @@ from wbb.utils.dbfunctions import (
     add_gban_user,
     is_gbanned_user,
     remove_gban_user,
+    get_gbans_count,
 )
 from wbb.utils.functions import extract_user, extract_user_and_reason, restart
 
@@ -34,7 +35,11 @@ __HELP__ = """
 
 /gban - To Ban A User Globally.
 
-/clean_db - Clean database.
+/ungban - to Unban a Globally banned user
+
+/gbanlist - lists all gbanned users if have
+
+/clean_db - Clean database.( sudoers dont try )
 
 /broadcast - To Broadcast A Message To All Groups.
 
