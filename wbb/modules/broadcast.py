@@ -16,23 +16,17 @@ BROADCAST_USAGE = """⚠️ Usage: /broadcast [all|users|chats] [copy]
 
 
 def safe_get_id(entry, key1, key2=None):
-    """Safely extract numeric ID from MongoDB documents."""
+    """Safely extract numeric Telegram ID from MongoDB documents."""
     val = entry.get(key1)
     if not val and key2:
         val = entry.get(key2)
     if not val:
         return None
     try:
-        # If it's already an int-like string, cast it
         return int(val)
     except (TypeError, ValueError):
-        # Try decoding if it's an ObjectId
         try:
-            if isinstance(val, ObjectId):
-                # You can decode timestamp if you want, but it’s not a Telegram ID
-                return None
-            # Sometimes val is string form of ObjectId
-            ObjectId(val)  # validate
+            ObjectId(val)  # Validate ObjectId-like values (not Telegram IDs)
             return None
         except Exception:
             return None
@@ -55,9 +49,9 @@ async def broadcast_message(_, message):
     users = await get_served_users()
     chats = await get_served_chats()
 
-    # ✅ Proper ID extraction
-    user_ids = [uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))]
-    chat_ids = [cid for c in chats if (cid := safe_get_id(c, "group_id"))]
+    # ✅ Proper ID extraction and deduplication
+    user_ids = sorted(set(uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))))
+    chat_ids = sorted(set(cid for c in chats if (cid := safe_get_id(c, "group_id"))))
 
     if mode == "all":
         targets = user_ids + chat_ids
@@ -71,13 +65,20 @@ async def broadcast_message(_, message):
     if not targets:
         return await message.reply_text("No valid targets found to broadcast.")
 
+    total_users = len(user_ids)
+    total_chats = len(chat_ids)
+    total_targets = len(targets)
+
     m = await message.reply_text(
-        f"📢 Starting broadcast to {len(targets)} targets...\n"
-        f"Mode: `{mode}` | Type: `{'Copy' if to_copy else 'Forward'}`"
+        f"📢 **Starting broadcast...**\n"
+        f"👤 Users: `{total_users}` | 👥 Groups: `{total_chats}`\n"
+        f"🧩 Total: `{total_targets}`\n"
+        f"🪄 Mode: `{'Copy' if to_copy else 'Forward'}`"
     )
 
     sent = failed = 0
-    invalid = []
+    invalid = set()
+    progress_update_interval = 50 # Update every 50 messages
 
     async def send_to_target(target_id):
         nonlocal sent, failed
@@ -87,29 +88,43 @@ async def broadcast_message(_, message):
             else:
                 await reply_message.forward(target_id)
             sent += 1
+            # Live progress update every 100 successful sends
+            if sent % progress_update_interval == 0:
+                try:
+                    await m.edit_text(
+                        f"📡 Broadcasting in progress...\n"
+                        f"📤 Sent: `{sent}` | ⚠️ Failed: `{failed}`\n"
+                        f"👤 Users: `{total_users}` | 👥 Groups: `{total_chats}`\n"
+                        f"🧩 Total Targets: `{total_targets}`"
+                    )
+                except Exception:
+                    pass
         except FloodWait as e:
             await asyncio.sleep(e.value)
             await send_to_target(target_id)
         except Forbidden:
             failed += 1
-            invalid.append(target_id)
+            invalid.add(target_id)
         except Exception:
             failed += 1
 
-    sem = asyncio.Semaphore(20)
+    sem = asyncio.Semaphore(10)
 
     async def sem_task(tid):
         async with sem:
             await send_to_target(tid)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
 
-    await asyncio.gather(*(sem_task(tid) for tid in targets))
+    await asyncio.gather(*(sem_task(tid) for tid in set(targets)))
 
     result_msg = (
-        f"✅ Broadcast Completed\n"
+        f"✅ **Broadcast Completed**\n\n"
         f"📤 Sent: `{sent}`\n"
-        f"⚠️ Failed/Invalid: `{failed}`\n"
-        f"🧩 Total Targets: `{len(targets)}`"
+        f"⚠️ Failed: `{failed}`\n\n"
+        f"👤 Users: `{total_users}`\n"
+        f"👥 Groups: `{total_chats}`\n"
+        f"🧩 Total Targets: `{total_targets}`\n"
+        f"🪄 Mode: `{'Copy' if to_copy else 'Forward'}`"
     )
 
     if invalid:
@@ -128,14 +143,15 @@ async def user_broadcast(_, message):
     to_copy = "copy" in message.text.lower()
     users = await get_served_users()
 
-    user_ids = [uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))]
+    user_ids = sorted(set(uid for u in users if (uid := safe_get_id(u, "user_id", "_id"))))
     if not user_ids:
         return await message.reply_text("No valid users found in database.")
 
-    m = await message.reply_text(f"📢 Broadcasting to {len(user_ids)} users...")
+    m = await message.reply_text(f"📢 Broadcasting to `{len(user_ids)}` users...")
 
     sent = failed = 0
-    invalid = []
+    invalid = set()
+    progress_update_interval = 50
 
     async def send_user(uid):
         nonlocal sent, failed
@@ -145,27 +161,37 @@ async def user_broadcast(_, message):
             else:
                 await reply_message.forward(uid)
             sent += 1
+            if sent % progress_update_interval == 0:
+                try:
+                    await m.edit_text(
+                        f"📡 Broadcasting in progress...\n"
+                        f"📤 Sent: `{sent}` | ⚠️ Failed: `{failed}`\n"
+                        f"👤 Total Users: `{len(user_ids)}`"
+                    )
+                except Exception:
+                    pass
         except FloodWait as e:
             await asyncio.sleep(e.value)
             await send_user(uid)
         except Forbidden:
             failed += 1
-            invalid.append(uid)
+            invalid.add(uid)
         except Exception:
             failed += 1
 
-    sem = asyncio.Semaphore(20)
+    sem = asyncio.Semaphore(10)
 
     async def sem_task(uid):
         async with sem:
             await send_user(uid)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
 
-    await asyncio.gather(*(sem_task(uid) for uid in user_ids))
+    await asyncio.gather(*(sem_task(uid) for uid in set(user_ids)))
 
     await m.edit(
-        f"✅ User Broadcast Completed\n"
+        f"✅ **User Broadcast Completed**\n\n"
         f"📤 Sent: `{sent}`\n"
-        f"⚠️ Failed/Invalid: `{failed}`\n"
-        f"🧩 Total Users: `{len(user_ids)}`"
+        f"⚠️ Failed: `{failed}`\n"
+        f"👤 Total Users: `{len(user_ids)}`\n"
+        f"🪄 Mode: `{'Copy' if to_copy else 'Forward'}`"
     )
