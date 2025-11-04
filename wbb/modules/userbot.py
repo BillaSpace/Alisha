@@ -13,18 +13,21 @@ import traceback
 from html import escape
 from io import StringIO
 from asyncio import sleep
+from collections import defaultdict, deque
 
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import MessageNotModified
 from pyrogram.types import Message, ReplyKeyboardMarkup
+from aiohttp import ClientSession
 
 from wbb import app2  # don't remove
 from wbb import SUDOERS, USERBOT_PREFIX, eor
 from wbb.core.tasks import add_task, rm_task
-from wbb.utils.http import post
 
-# Eval and Sh module from nana-remix
+# ---------------------------
+#   Eval and Shell Section
+# ---------------------------
 
 m = None
 p = print
@@ -76,7 +79,7 @@ async def executor(client, message: Message):
     m = message
     p = print
 
-    # To prevent keyboard input attacks
+    # Prevent keyboard input attacks
     if m.reply_to_message:
         r = m.reply_to_message
         if r.reply_markup and isinstance(r.reply_markup, ReplyKeyboardMarkup):
@@ -225,45 +228,58 @@ async def shellrunner(_, message: Message):
 
 
 # ----------------------------
-#  Chatbot Section (fixed)
+#  Chatbot Section (Ollama + Cached Memory)
 # ----------------------------
 
-HISTORY = [
-    {"role": "system", "content": "You are a sexy teen human girl. Behave and respond like a human girl, not a bot. Always end a message with a question or new topic with some naughty texts."}
-]
+CHAT_MEMORY = defaultdict(lambda: deque(maxlen=20))
 
-
-@app2.on_message(
-    filters.chat([-1002030443562, "billacore"])
-    & filters.text
+SYSTEM_PROMPT = (
+    "You are a sexy teen human girl. Behave and respond like a human girl, "
+    "not a bot. Always end a message with a question or new topic with some naughty texts."
 )
-async def asd_temp(_, message: Message):
+
+
+async def query_ollama(messages):
+    async with ClientSession() as session:
+        async with session.post(
+            "http://127.0.0.1:11434/api/chat",
+            json={"model": "llama3", "messages": messages, "stream": False},
+            headers={"Content-Type": "application/json"},
+        ) as resp:
+            if resp.status != 200:
+                raise Exception(await resp.text())
+            data = await resp.json()
+            return data.get("message", {}).get("content", "")
+
+
+@app2.on_message(filters.chat([-1002030443562, "billacore"]) & filters.text)
+async def chatbot_handler(_, message: Message):
     if (message.from_user.username or "").lower() in ["ifeelram", "oye_anurag"]:
         return
 
-    text = message.text
-    HISTORY.append({"role": "user", "content": text})
+    chat_id = message.chat.id
+    user_msg = message.text.strip()
+
+    # Initialize memory
+    if not CHAT_MEMORY[chat_id]:
+        CHAT_MEMORY[chat_id].append({"role": "system", "content": SYSTEM_PROMPT})
+
+    CHAT_MEMORY[chat_id].append({"role": "user", "content": user_msg})
 
     try:
-        response = await post(
-            "http://127.0.0.1:11434/api/chat",
-            headers={"Content-Type": "application/json"},
-            json={
-                "messages": HISTORY,
-                "temperature": 0.7,
-                "max_tokens": -1,
-                "stream": False,
-            }
-        )
-        resp_text = response['choices'][0]['message']['content']
+        reply_text = await query_ollama(list(CHAT_MEMORY[chat_id]))
     except Exception as e:
         print(f"[Chatbot Error] {e}")
-        resp_text = "⚠️ Chat service is currently offline or unreachable."
+        reply_text = "⚠️ Chat service is currently offline or unreachable."
 
-    HISTORY.append({"role": "assistant", "content": resp_text})
+    CHAT_MEMORY[chat_id].append({"role": "assistant", "content": reply_text})
     await sleep(10)
-    return await message.reply(resp_text)
+    await message.reply(reply_text)
 
+
+# ----------------------------
+#  Reserve Channel Command
+# ----------------------------
 
 @app2.on_message(
     filters.command("reserve", prefixes=USERBOT_PREFIX)
