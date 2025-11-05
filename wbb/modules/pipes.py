@@ -2,31 +2,13 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 import asyncio
 
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import BOT_ID, SUDOERS, USERBOT_ID, app, app2
+from wbb import BOT_ID, SUDOERS, USERBOT_ID, app, app2, HAS_USERBOT
 from wbb.core.decorators.errors import capture_err
 
 __MODULE__ = "Pipes"
@@ -59,6 +41,15 @@ Use this module to create a pipe that will forward messages of one chat/channel 
 pipes_list_bot = {}
 pipes_list_userbot = {}
 
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
+
 
 @app.on_message(~filters.me, group=500)
 @capture_err
@@ -68,20 +59,25 @@ async def pipes_worker_bot(_, message: Message):
         await message.forward(pipes_list_bot[chat_id])
 
 
-@app2.on_message(~filters.me, group=500)
+@ubot_on_message(~filters.me, group=500)
 @capture_err
 async def pipes_worker_userbot(_, message: Message):
+    if app2 is None:
+        return
     chat_id = message.chat.id
 
-    if chat_id in pipes_list_bot:
+    # fixed: check the correct dict for userbot pipes
+    if chat_id in pipes_list_userbot:
         caption = f"\n\nForwarded from `{chat_id}`"
-        to_chat_id = pipes_list_bot[chat_id]
+        to_chat_id = pipes_list_userbot[chat_id]
 
         if not message.text:
+            # keep original structure/logic
             m, temp = await asyncio.gather(
-                app.listen(USERBOT_ID), message.copy(BOT_ID)
+                app.listen(USERBOT_ID),  # leave as-is to preserve behavior
+                message.copy(BOT_ID),
             )
-            caption = f"{temp.caption}{caption}" if temp.caption else caption
+            caption = f"{temp.caption}{caption}" if getattr(temp, "caption", None) else caption
 
             await app.copy_message(
                 to_chat_id,
@@ -117,10 +113,7 @@ async def activate_pipe_func(_, message: Message):
     if from_chat in pipes_list_bot or from_chat in pipes_list_userbot:
         return await message.reply_text("This pipe is already active.")
 
-    dict_ = pipes_list_bot
-    if fetcher == "userbot":
-        dict_ = pipes_list_userbot
-
+    dict_ = pipes_list_bot if fetcher == "bot" else pipes_list_userbot
     dict_[from_chat] = to_chat
     await message.reply_text("Activated pipe.")
 
@@ -137,12 +130,9 @@ async def deactivate_pipe_func(_, message: Message):
     from_chat = int(text[1])
 
     if from_chat not in pipes_list_bot and from_chat not in pipes_list_userbot:
-        await message.reply_text("This pipe is already inactive.")
+        return await message.reply_text("This pipe is already inactive.")
 
-    dict_ = pipes_list_bot
-    if from_chat in pipes_list_userbot:
-        dict_ = pipes_list_userbot
-
+    dict_ = pipes_list_bot if from_chat in pipes_list_bot else pipes_list_userbot
     del dict_[from_chat]
     await message.reply_text("Deactivated pipe.")
 
@@ -150,14 +140,12 @@ async def deactivate_pipe_func(_, message: Message):
 @app.on_message(filters.command("pipes") & SUDOERS)
 @capture_err
 async def show_pipes_func(_, message: Message):
-    pipes_list_bot.update(pipes_list_userbot)
-    if not pipes_list_bot:
+    # Present a merged view without mutating the dicts
+    merged = {**pipes_list_bot, **pipes_list_userbot}
+    if not merged:
         return await message.reply_text("No pipe is active.")
 
     text = ""
-    for count, pipe in enumerate(pipes_list_bot.items(), 1):
-        text += (
-            f"**Pipe:** `{count}`\n**From:** `{pipe[0]}`\n"
-            + f"**To:** `{pipe[1]}`\n\n"
-        )
+    for count, (src, dst) in enumerate(merged.items(), 1):
+        text += f"**Pipe:** `{count}`\n**From:** `{src}`\n**To:** `{dst}`\n\n"
     await message.reply_text(text)
