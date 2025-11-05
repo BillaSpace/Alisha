@@ -100,6 +100,7 @@ if _HAS_USERBOT:
 else:
     app2 = None  # keep symbol for imports / attribute access
 # -----------------------------------------------------------
+HAS_USERBOT = _HAS_USERBOT
 
 aiohttpsession = ClientSession()
 arq = ARQ(ARQ_API_URL, ARQ_API_KEY, aiohttpsession)
