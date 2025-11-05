@@ -22,7 +22,7 @@ from wbb.modules import ALL_MODULES
 from wbb.modules.sudoers import bot_sys_stats
 from wbb.utils import paginate_modules
 from wbb.utils.constants import MARKDOWN
-from wbb.utils.dbfunctions import add_served_user, add_served_chat, clean_restart_stage, get_rules
+from wbb.utils.dbfunctions import clean_restart_stage, get_rules
 from wbb.utils.functions import extract_text_and_keyb
 
 loop = asyncio.get_event_loop()
@@ -100,7 +100,7 @@ async def start_bot():
     log.info("Cancelling asyncio tasks")
     for task in asyncio.all_tasks():
         task.cancel()
-    log.info("Dead!")
+    log.info("Bot 🛑 stopped!")
 
 
 # ================== CLEAN HOME KEYBOARD =================== #
@@ -118,7 +118,7 @@ home_keyboard_pm = InlineKeyboardMarkup(
         ],
         [
             InlineKeyboardButton(
-                text="User Help", url="https://t.me/billacore"
+                text="Helpers", url="https://t.me/billacore"
             ),
         ],
         [
@@ -173,23 +173,10 @@ FED_MARKUP = InlineKeyboardMarkup(
 
 @app.on_message(filters.command("start"))
 async def start(_, message):
-    # Save group when invoked in a group/supergroup
     if message.chat.type != ChatType.PRIVATE:
-        # store group in DB (chatsdb uses "group_id")
-        try:
-            await add_served_chat(message.chat.id)
-        except Exception:
-            pass
         return await message.reply(
             "PM Me For More Details.", reply_markup=keyboard
         )
-
-    # Save user when invoked in private
-    try:
-        await add_served_user(message.from_user.id)
-    except Exception:
-        pass
-
     if len(message.text.split()) > 1:
         user = await app.get_users(message.from_user.id)
         name = (message.text.split(None, 1)[1]).lower()
