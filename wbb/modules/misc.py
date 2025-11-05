@@ -2,6 +2,24 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 import re
 import secrets
@@ -10,13 +28,12 @@ import subprocess
 import time
 import socket
 import platform
-import json  # <- needed for /json
 from asyncio import Lock
 from re import findall
 
 from pyrogram import enums, filters
 
-from wbb import SUDOERS, USERBOT_PREFIX, app, app2, arq, eor, HAS_USERBOT
+from wbb import SUDOERS, USERBOT_PREFIX, app, app2, arq, eor
 from wbb.core.decorators.errors import capture_err
 from wbb.utils import random_line
 from wbb.utils.http import get
@@ -83,17 +100,7 @@ __HELP__ = """
 
 PING_LOCK = Lock()
 
-# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
-if app2 is not None and HAS_USERBOT:
-    ubot_on_message = app2.on_message
-else:
-    def ubot_on_message(*args, **kwargs):
-        def _wrap(func):
-            return func
-        return _wrap
-
-
-@ubot_on_message(
+@app2.on_message(
     SUDOERS
     & filters.command("ping", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
@@ -196,7 +203,7 @@ async def runs(_, message):
     await message.reply_text((await random_line("wbb/utils/runs.txt")))
 
 
-@ubot_on_message(
+@app2.on_message(
     filters.command("id", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
