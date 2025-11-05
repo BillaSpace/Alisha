@@ -2,6 +2,24 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 from io import BytesIO
 from traceback import format_exc
@@ -9,7 +27,7 @@ from traceback import format_exc
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import SUDOERS, USERBOT_PREFIX, app, app2, arq, HAS_USERBOT
+from wbb import SUDOERS, USERBOT_PREFIX, app, app2, arq
 from wbb.core.decorators.errors import capture_err
 
 __MODULE__ = "Quotly"
@@ -20,15 +38,6 @@ __HELP__ = """
 
 Use .q to quote using userbot
 """
-
-# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
-if app2 is not None and HAS_USERBOT:
-    ubot_on_message = app2.on_message
-else:
-    def ubot_on_message(*args, **kwargs):
-        def _wrap(func):
-            return func
-        return _wrap
 
 
 async def quotify(messages: list):
@@ -55,7 +64,7 @@ def isArgInt(message: Message) -> list:
         return [False, 0]
 
 
-@ubot_on_message(
+@app2.on_message(
     filters.command("q", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
@@ -82,7 +91,8 @@ async def quotly_func(client, message: Message):
 
             count = arg[1]
 
-            # Fetch a few extra messages to skip media/empty ones while preserving offset
+            # Fetching 5 extra messages so that we can ignore media
+            # messages and still end up with correct offset
             messages = [
                 i
                 for i in await client.get_messages(
@@ -112,6 +122,9 @@ async def quotly_func(client, message: Message):
             "Incorrect argument, check quotly module in help section."
         )
     try:
+        #if not message:
+        #    return await m.edit("Something went wrong.")
+
         sticker = await quotify(messages)
         if not sticker[0]:
             await message.reply_text(sticker[1])
@@ -120,7 +133,7 @@ async def quotly_func(client, message: Message):
         await message.reply_sticker(sticker)
         await m.delete()
         sticker.close()
-    except Exception:
+    except Exception as e:
         await m.edit(
             "Something went wrong while quoting messages,"
             + " This error usually happens when there's a "
