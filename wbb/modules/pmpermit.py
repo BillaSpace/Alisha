@@ -2,24 +2,6 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 
 from pyrogram import filters
@@ -34,6 +16,7 @@ from wbb import (
     app,
     app2,
     eor,
+    HAS_USERBOT,  # <- added
 )
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.dbfunctions import (
@@ -44,8 +27,17 @@ from wbb.utils.dbfunctions import (
 
 flood = {}
 
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
-@app2.on_message(
+
+@ubot_on_message(
     filters.private
     & filters.incoming
     & ~filters.service
@@ -56,17 +48,20 @@ flood = {}
 )
 @capture_err
 async def pmpermit_func(_, message):
+    if app2 is None:
+        return
     user_id = message.from_user.id
     if not PM_PERMIT or await is_pmpermit_approved(user_id):
         return
     async for m in app2.get_chat_history(user_id, limit=6):
         if m.reply_markup:
-            await m.delete()
-    if str(user_id) in flood:
-        flood[str(user_id)] += 1
-    else:
-        flood[str(user_id)] = 1
-    if flood[str(user_id)] > 5:
+            try:
+                await m.delete()
+            except Exception:
+                pass
+    key = str(user_id)
+    flood[key] = flood.get(key, 0) + 1
+    if flood[key] > 5:
         await message.reply_text("SPAM DETECTED, BLOCKED USER AUTOMATICALLY!")
         return await app2.block_user(user_id)
     results = await app2.get_inline_bot_results(BOT_ID, f"pmpermit {user_id}")
@@ -77,7 +72,7 @@ async def pmpermit_func(_, message):
     )
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("approve", prefixes=USERBOT_PREFIX)
     & SUDOERS
     & ~filters.via_bot
@@ -85,7 +80,9 @@ async def pmpermit_func(_, message):
 )
 @capture_err
 async def pm_approve(_, message):
-    if not message.reply_to_message:
+    if app2 is None:
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
         return await eor(message, text="Reply to a user's message to approve.")
     user_id = message.reply_to_message.from_user.id
     if await is_pmpermit_approved(user_id):
@@ -94,32 +91,31 @@ async def pm_approve(_, message):
     await eor(message, text="User is approved to pm")
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("disapprove", prefixes=USERBOT_PREFIX)
     & SUDOERS
     & ~filters.via_bot
     & ~filters.forwarded
 )
+@capture_err
 async def pm_disapprove(_, message):
-    if not message.reply_to_message:
-        return await eor(
-            message, text="Reply to a user's message to disapprove."
-        )
+    if app2 is None:
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        return await eor(message, text="Reply to a user's message to disapprove.")
     user_id = message.reply_to_message.from_user.id
     if not await is_pmpermit_approved(user_id):
         await eor(message, text="User is already disapproved to pm")
         async for m in app2.get_chat_history(user_id, limit=6):
             if m.reply_markup:
-                try:
+                with capture_err.log_exceptions():
                     await m.delete()
-                except Exception:
-                    pass
         return
     await disapprove_pmpermit(user_id)
     await eor(message, text="User is disapproved to pm")
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("block", prefixes=USERBOT_PREFIX)
     & SUDOERS
     & ~filters.via_bot
@@ -127,40 +123,51 @@ async def pm_disapprove(_, message):
 )
 @capture_err
 async def block_user_func(_, message):
-    if not message.reply_to_message:
+    if app2 is None:
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
         return await eor(message, text="Reply to a user's message to block.")
     user_id = message.reply_to_message.from_user.id
-    # Blocking user after editing the message so that other person can get the update.
+    # Edit first so the other side sees it, then block.
     await eor(message, text="Successfully blocked the user")
     await app2.block_user(user_id)
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("unblock", prefixes=USERBOT_PREFIX)
     & SUDOERS
     & ~filters.via_bot
     & ~filters.forwarded
 )
+@capture_err
 async def unblock_user_func(_, message):
-    if not message.reply_to_message:
+    if app2 is None:
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
         return await eor(message, text="Reply to a user's message to unblock.")
     user_id = message.reply_to_message.from_user.id
     await app2.unblock_user(user_id)
     await eor(message, text="Successfully Unblocked the user")
 
 
-# CALLBACK QUERY HANDLER
+# ---------------------- CALLBACK QUERY HANDLER (bot) ----------------------
 
 flood2 = {}
 
 
 @app.on_callback_query(filters.regex("pmpermit"))
+@capture_err
 async def pmpermit_cq(_, cq):
+    # Short-circuit when userbot is disabled
+    if app2 is None or not HAS_USERBOT or USERBOT_ID is None:
+        return await cq.answer("Userbot is disabled.", show_alert=True)
+
     user_id = cq.from_user.id
-    data, victim = (
-        cq.data.split(None, 2)[1],
-        cq.data.split(None, 2)[2],
-    )
+    try:
+        _, data, victim = cq.data.split(None, 2)
+    except Exception:
+        return await cq.answer("Malformed data.")
+
     if data == "approve":
         if user_id != USERBOT_ID:
             return await cq.answer("This Button Is Not For You")
@@ -185,24 +192,26 @@ async def pmpermit_cq(_, cq):
             )
         )
 
+    # From here on, only non-userbot users should trigger
     if user_id == USERBOT_ID:
         return await cq.answer("It's For The Other Person.")
 
     if data == "to_scam_you":
         async for m in app2.get_chat_history(user_id, limit=6):
             if m.reply_markup:
-                await m.delete()
+                try:
+                    await m.delete()
+                except Exception:
+                    pass
         await app2.send_message(user_id, "Blocked, Go scam someone else.")
         await app2.block_user(user_id)
-        await cq.answer()
+        return await cq.answer()
 
     elif data == "approve_me":
         await cq.answer()
-        if str(user_id) in flood2:
-            flood2[str(user_id)] += 1
-        else:
-            flood2[str(user_id)] = 1
-        if flood2[str(user_id)] > 5:
+        key = str(user_id)
+        flood2[key] = flood2.get(key, 0) + 1
+        if flood2[key] > 5:
             await app2.send_message(user_id, "SPAM DETECTED, USER BLOCKED.")
             return await app2.block_user(user_id)
         await app2.send_message(
