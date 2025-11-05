@@ -2,24 +2,6 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 from asyncio import gather
 from io import BytesIO
@@ -31,27 +13,37 @@ from traceback import format_exc
 from pyrogram import filters
 from pyrogram.types import Chat, Message
 
-from wbb import LOG_GROUP_ID, SUDOERS, USERBOT_ID, USERBOT_PREFIX
+from wbb import LOG_GROUP_ID, SUDOERS, USERBOT_ID, USERBOT_PREFIX, HAS_USERBOT
 from wbb import aiohttpsession as session
 from wbb import app, app2
 from wbb.modules.userbot import eor
 from wbb.utils.functions import extract_user
 
+# No-op decorator when userbot is disabled/absent
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
-@app2.on_message(
+
+@ubot_on_message(
     filters.command("anonymize", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
     & SUDOERS
 )
 async def change_profile(_, message: Message):
+    if app2 is None:
+        return
     m = await eor(message, text="Anonymizing...")
     try:
         image_resp, name_resp = await gather(
             session.get("https://thispersondoesnotexist.com/image"),
             session.get(
-                "https://raw.githubusercontent.com/dominictarr/"
-                + "random-name/master/first-names.json"
+                "https://raw.githubusercontent.com/dominictarr/random-name/master/first-names.json"
             ),
         )
         image = BytesIO(await image_resp.read())
@@ -61,7 +53,7 @@ async def change_profile(_, message: Message):
             app2.set_profile_photo(photo=image),
             app2.update_profile(first_name=name),
         )
-    except Exception as e:
+    except Exception:
         e = format_exc()
         err = await app.send_message(LOG_GROUP_ID, text=f"`{e}`")
         return await m.edit(f"**Error**: {err.link}")
@@ -69,19 +61,21 @@ async def change_profile(_, message: Message):
     image.close()
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("impersonate", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
     & SUDOERS
 )
 async def impersonate(_, message: Message):
+    if app2 is None:
+        return
     user_id = await extract_user(message)
 
     if not user_id:
         return await eor(message, text="Can't impersonate an anonymous user.")
     if user_id == USERBOT_ID:
-        return eor(message, text="Can't impersonate myself.")
+        return await eor(message, text="Can't impersonate myself.")
 
     m = await eor(message, text="Processing...")
 
@@ -96,7 +90,7 @@ async def impersonate(_, message: Message):
         )
         await app2.set_profile_photo(photo=pfp)
         remove(pfp)
-    except Exception as e:
+    except Exception:
         e = format_exc()
         err = await app.send_message(LOG_GROUP_ID, text=f"`{e}`")
         return await m.edit(f"**Error**: {err.link}")
