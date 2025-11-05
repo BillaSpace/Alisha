@@ -16,6 +16,8 @@ from wbb import (
     aiohttpsession,
     app,
     log,
+    # align with __init__.py: app2 may be None when no SESSION_STRING
+    app2 as userbot_app,
 )
 from wbb.core.keyboard import ikb
 from wbb.modules import ALL_MODULES
@@ -74,12 +76,12 @@ async def start_bot():
     print(bot_modules)
     print("+===============+===============+===============+===============+")
     log.info(f"BOT STARTED AS {BOT_NAME}!")
-    # --- optional userbot log ---
+    # --- optional userbot log (aligned with __init__.py optional userbot) ---
     if USERBOT_NAME and str(USERBOT_NAME).strip():
         log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
     else:
         log.warning("String session missing — skipping userbot startup.")
-    # -----------------------------
+    # ------------------------------------------------------------------------
 
     restart_data = await clean_restart_stage()
 
@@ -97,14 +99,32 @@ async def start_bot():
     except Exception:
         pass
 
+    # keep running until terminated
     await idle()
 
-    await aiohttpsession.close()
+    # ---------- graceful shutdown order: stop clients -> close aiohttp ----------
     log.info("Stopping clients")
-    await app.stop()
+    with suppress(Exception):
+        await app.stop()
+
+    # stop optional userbot if present
+    with suppress(Exception):
+        if userbot_app is not None:
+            # userbot_app may be a sync stop() in some pyrogram versions; await if coroutine
+            maybe = userbot_app.stop()
+            if asyncio.iscoroutine(maybe):
+                await maybe
+
+    # close aiohttp session after clients are down
+    with suppress(Exception):
+        if not aiohttpsession.closed:
+            await aiohttpsession.close()
+
+    # finally, cancel any leftover tasks
     log.info("Cancelling asyncio tasks")
     for task in asyncio.all_tasks():
-        task.cancel()
+        if task is not asyncio.current_task() and not task.done():
+            task.cancel()
     log.info("Bot 🛑 stopped Successfully!")
 
 
