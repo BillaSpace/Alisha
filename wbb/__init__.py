@@ -2,24 +2,7 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+...
 """
 import asyncio
 import time
@@ -104,17 +87,20 @@ async def load_sudoers():
 loop = asyncio.get_event_loop()
 loop.run_until_complete(load_sudoers())
 
-if not SESSION_STRING:
+# -------------------- USERBOT: OPTIONAL --------------------
+# If SESSION_STRING is missing/blank, skip userbot cleanly.
+_HAS_USERBOT = bool(SESSION_STRING and str(SESSION_STRING).strip())
+
+if _HAS_USERBOT:
     app2 = Client(
         name="sessions/userbot",
         api_id=API_ID,
         api_hash=API_HASH,
-        phone_number=PHONE_NUMBER,
+        session_string=SESSION_STRING,
     )
 else:
-    app2 = Client(
-        name="sessions/userbot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING
-    )
+    app2 = None  # Keep symbol available for imports
+# -----------------------------------------------------------
 
 aiohttpsession = ClientSession()
 
@@ -124,27 +110,39 @@ app = Client("sessions/wbb", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HA
 
 log.info("Starting bot client")
 app.start()
-log.info("Starting userbot client")
-app2.start()
+
+# Start userbot only if configured
+if _HAS_USERBOT:
+    log.info("Starting userbot client")
+    app2.start()
+else:
+    log.error("String session missing — skipping userbot startup.")
 
 log.info("Gathering profile info")
 x = app.get_me()
-y = app2.get_me()
-
 BOT_ID = x.id
 BOT_NAME = x.first_name + (x.last_name or "")
 BOT_USERNAME = x.username
 BOT_MENTION = x.mention
 BOT_DC_ID = x.dc_id
 
-USERBOT_ID = y.id
-USERBOT_NAME = y.first_name + (y.last_name or "")
-USERBOT_USERNAME = y.username
-USERBOT_MENTION = y.mention
-USERBOT_DC_ID = y.dc_id
+# USERBOT profile only if present; set safe fallbacks otherwise
+if _HAS_USERBOT:
+    y = app2.get_me()
+    USERBOT_ID = y.id
+    USERBOT_NAME = y.first_name + (y.last_name or "")
+    USERBOT_USERNAME = y.username
+    USERBOT_MENTION = y.mention
+    USERBOT_DC_ID = y.dc_id
 
-if USERBOT_ID not in SUDOERS:
-    SUDOERS.add(USERBOT_ID)
+    if USERBOT_ID not in SUDOERS:
+        SUDOERS.add(USERBOT_ID)
+else:
+    USERBOT_ID = None
+    USERBOT_NAME = None
+    USERBOT_USERNAME = None
+    USERBOT_MENTION = None
+    USERBOT_DC_ID = None
 
 log.info("Initializing Telegraph client")
 telegraph = Telegraph(domain="graph.org")
@@ -153,7 +151,7 @@ telegraph.create_account(short_name=BOT_USERNAME)
 
 async def eor(msg: Message, **kwargs):
     func = (
-        (msg.edit_text if msg.from_user.is_self else msg.reply)
+        (msg.edit_text if msg.from_user and msg.from_user.is_self else msg.reply)
         if msg.from_user
         else msg.reply
     )
