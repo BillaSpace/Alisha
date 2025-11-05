@@ -2,24 +2,6 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 from asyncio import gather
 from base64 import b64decode
@@ -28,9 +10,18 @@ from io import BytesIO
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import SUDOERS, USERBOT_PREFIX, app, app2, eor
+from wbb import SUDOERS, USERBOT_PREFIX, app, app2, eor, HAS_USERBOT
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.http import post
+
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
 
 async def take_screenshot(url: str, full: bool = False):
@@ -48,7 +39,7 @@ async def take_screenshot(url: str, full: bool = False):
         "https://webscreenshot.vercel.app/api",
         data=payload,
     )
-    if "image" not in data:
+    if not isinstance(data, dict) or "image" not in data:
         return None
     b = data["image"].replace("data:image/jpeg;base64,", "")
     file = BytesIO(b64decode(b))
@@ -56,8 +47,8 @@ async def take_screenshot(url: str, full: bool = False):
     return file
 
 
-@app2.on_message(
-    filters.command("webss", USERBOT_PREFIX)
+@ubot_on_message(
+    filters.command("webss", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
     & SUDOERS
@@ -89,13 +80,13 @@ async def take_ss(_, message: Message):
         if not photo:
             return await m.edit("Failed To Take Screenshot")
 
-        m = await m.edit("Uploading...")
+        await m.edit("Uploading...")
 
         if not full:
-            # Full size images have problem with reply_photo, that's why
-            # we need to only use reply_photo if we're not using full size
+            # Full-size images can be problematic with reply_photo; send both when not full.
             await gather(
-                *[message.reply_document(photo), message.reply_photo(photo)]
+                message.reply_document(photo),
+                message.reply_photo(photo),
             )
         else:
             await message.reply_document(photo)
