@@ -2,6 +2,24 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 
 import asyncio
@@ -9,7 +27,7 @@ from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait
 
-from wbb import BOT_ID, BOT_NAME, SUDOERS, USERBOT_NAME, app, app2, HAS_USERBOT
+from wbb import BOT_ID, BOT_NAME, SUDOERS, USERBOT_NAME, app, app2
 from wbb.core.decorators.errors import capture_err
 from wbb.modules import ALL_MODULES
 from wbb.utils.dbfunctions import (
@@ -39,11 +57,10 @@ async def clean_db(_, message):
 
     for served_chat in served_chats.copy():
         try:
-            # check bot presence
-            await app.get_chat_member(served_chat, BOT_ID)
+            await app.get_chat_members(served_chat, BOT_ID)
             await asyncio.sleep(2)
         except FloodWait as e:
-            await asyncio.sleep(int(e.value if hasattr(e, 'value') else e.x))
+            await asyncio.sleep(int(e.x))
         except Exception:
             await remove_served_chat(served_chat)
             served_chats.remove(served_chat)
@@ -120,20 +137,19 @@ async def global_stats(_, message):
     rss_count = await get_rss_feeds_count()
     modules_count = len(ALL_MODULES)
 
-    # userbot info (optional)
+    # userbot info
     groups_ub = channels_ub = bots_ub = privates_ub = total_ub = 0
-    if app2 is not None and HAS_USERBOT:
-        async for i in app2.get_dialogs():
-            t = i.chat.type
-            total_ub += 1
-            if t in [ChatType.SUPERGROUP, ChatType.GROUP]:
-                groups_ub += 1
-            elif t == ChatType.CHANNEL:
-                channels_ub += 1
-            elif t == ChatType.BOT:
-                bots_ub += 1
-            elif t == ChatType.PRIVATE:
-                privates_ub += 1
+    async for i in app2.get_dialogs():
+        t = i.chat.type
+        total_ub += 1
+        if t in [ChatType.SUPERGROUP, ChatType.GROUP]:
+            groups_ub += 1
+        elif t == ChatType.CHANNEL:
+            channels_ub += 1
+        elif t == ChatType.BOT:
+            bots_ub += 1
+        elif t == ChatType.PRIVATE:
+            privates_ub += 1
 
     msg = f"""
 **📊 Global Stats of {BOT_NAME}:**
@@ -151,7 +167,7 @@ async def global_stats(_, message):
 **Total Members in Chats:** {total_users}
 **Developers:** {developers} | **Commits:** {commits} [GitHub]({rurl})
 
-**🤖 Userbot Stats ({USERBOT_NAME if HAS_USERBOT else 'disabled'}):**
+**🤖 Userbot Stats ({USERBOT_NAME}):**
 **Total Dialogs:** {total_ub}
 **Groups Joined:** {groups_ub}
 **Channels Joined:** {channels_ub}
