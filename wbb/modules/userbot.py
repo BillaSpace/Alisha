@@ -19,8 +19,19 @@ from pyrogram.errors import MessageNotModified
 from pyrogram.types import Message, ReplyKeyboardMarkup
 
 from wbb import app2  # don't remove
-from wbb import SUDOERS, USERBOT_PREFIX, eor
+from wbb import SUDOERS, USERBOT_PREFIX, eor, HAS_USERBOT
 from wbb.core.tasks import add_task, rm_task
+from wbb.utils.http import post
+from asyncio import sleep
+
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
 # Eval and Sh module from nana-remix
 
@@ -58,7 +69,7 @@ async def iter_edit(message: Message, text: str):
                 return
 
 
-@app2.on_message(
+@ubot_on_message(
     SUDOERS
     & ~filters.forwarded
     & ~filters.via_bot
@@ -88,6 +99,7 @@ async def executor(client, message: Message):
     redirected_output = sys.stdout = StringIO()
     redirected_error = sys.stderr = StringIO()
     stdout, stderr, exc = None, None, None
+    task_id = None
     try:
         task, task_id = await add_task(
             aexec,
@@ -102,12 +114,19 @@ async def executor(client, message: Message):
             status = await m.reply(text, quote=True)
 
         await task
-    except Exception as e:
+    except Exception:
         e = traceback.format_exc()
         print(e)
         exc = e.splitlines()[-1]
 
-    await rm_task()
+    # ensure task cleanup if we had an id
+    try:
+        if task_id is not None:
+            await rm_task(task_id)
+        else:
+            await rm_task()
+    except Exception:
+        pass
 
     stdout = redirected_output.getvalue()
     stderr = redirected_error.getvalue()
@@ -150,7 +169,7 @@ async def executor(client, message: Message):
     await eor(status, text=final_output, quote=True)
 
 
-@app2.on_message(
+@ubot_on_message(
     SUDOERS
     & ~filters.forwarded
     & ~filters.via_bot
@@ -199,8 +218,7 @@ async def shellrunner(_, message: Message):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-        except Exception as err:
-            print(err)
+        except Exception:
             errors = traceback.format_exc()
             return await eor(
                 message,
@@ -231,39 +249,41 @@ async def shellrunner(_, message: Message):
         )
 
 HISTORY = [
-        {"role": "system", "content": "You are a human, behave and response like a human, don't behave like a bot because you are not an ai bot.\n\nAlways end a message with a question or new topic"}
-    ]
-from wbb.utils.http import post
-from asyncio import sleep
+    {
+        "role": "system",
+        "content": "You are a human, behave and response like a human, don't behave like a bot because you are not an ai bot.\n\nAlways end a message with a question or new topic",
+    }
+]
 
-@app2.on_message(
-        filters.chat([-1002030443562, "billacore"])
-        & filters.text
+
+@ubot_on_message(
+    filters.chat([-1002030443562, "billacore"])
+    & filters.text
 )
 async def asd_temp(_, message: Message):
-    if (message.from_user.username or "").lower() in ["thehamkercat", "jojiiofficial"]:
+    if (message.from_user.username or "").lower() in ["ifeelram", "x_ifeelram"]:
         return
     text = message.text
 
     HISTORY.append({"role": "user", "content": text})
 
     response = await post(
-             "https://arq.hamker.dev/v1/chat/completions",
-             headers={"Content-Type": "application/json"},
-             json={
-                 "messages": HISTORY,
-                  "temperature": 0.7, 
-                  "max_tokens": -1,
-                  "stream": False,
-                }
-            )
-    resp_text = response['choices'][0]['message']['content']
+        "https://arq.hamker.dev/v1/chat/completions",
+        headers={"Content-Type": "application/json"},
+        json={
+            "messages": HISTORY,
+            "temperature": 0.7,
+            "max_tokens": -1,
+            "stream": False,
+        },
+    )
+    resp_text = response["choices"][0]["message"]["content"]
     HISTORY.append({"role": "assistant", "content": resp_text})
     await sleep(10)
     return await message.reply(resp_text)
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("reserve", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
