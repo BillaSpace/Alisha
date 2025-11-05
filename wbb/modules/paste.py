@@ -2,24 +2,6 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 import os
 import re
@@ -28,67 +10,65 @@ import aiofiles
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import SUDOERS, USERBOT_PREFIX, app, app2, eor
+from wbb import app, eor
 from wbb.core.decorators.errors import capture_err
 from wbb.core.keyboard import ikb
 from wbb.utils.pastebin import paste
 
 __MODULE__ = "Paste"
 __HELP__ = "/paste - To Paste Replied Text Or Document To A Pastebin"
-pattern = re.compile(r"^text/|json$|yaml$|xml$|toml$|x-sh$|x-shellscript$")
+
+# allow common text-y mimetypes
+pattern = re.compile(r"(?:^text/|json$|yaml$|xml$|toml$|x-sh$|x-shellscript$)", re.I)
 
 
-@app2.on_message(
-    filters.command("paste", prefixes=USERBOT_PREFIX)
-    & ~filters.forwarded
-    & ~filters.via_bot
-    & SUDOERS
-)
-@app.on_message(filters.command("paste"))
+@app.on_message(filters.command("paste") & ~filters.forwarded & ~filters.via_bot)
 @capture_err
 async def paste_func(_, message: Message):
     if not message.reply_to_message:
-        return await eor(message, text="Reply To A Message With /paste")
+        return await eor(message, text="Reply to a message with /paste")
+
     r = message.reply_to_message
 
     if not r.text and not r.document:
-        return await eor(
-            message, text="Only text and documents are supported."
-        )
+        return await eor(message, text="Only text messages and text files are supported.")
 
     m = await eor(message, text="Pasting...")
 
+    # Collect content
     if r.text:
-        content = str(r.text)
-    elif r.document:
-        if r.document.file_size > 40000:
-            return await m.edit("You can only paste files smaller than 40KB.")
-
-        if not pattern.search(r.document.mime_type):
+        content = r.text
+    else:
+        # r.document path
+        if not getattr(r.document, "mime_type", None) or not pattern.search(r.document.mime_type):
             return await m.edit("Only text files can be pasted.")
 
-        doc = await message.reply_to_message.download()
+        if r.document.file_size and r.document.file_size > 40_000:
+            return await m.edit("You can only paste files smaller than 40KB.")
 
-        async with aiofiles.open(doc, mode="r") as f:
-            content = await f.read()
+        doc_path = await r.download()
+        try:
+            async with aiofiles.open(doc_path, mode="r", encoding="utf-8", errors="ignore") as f:
+                content = await f.read()
+        finally:
+            try:
+                os.remove(doc_path)
+            except Exception:
+                pass
 
-        os.remove(doc)
-
+    # Do the paste
     link = await paste(content)
     kb = ikb({"Paste Link": link})
+
+    # Try showing a preview image if the paste service returns one; fall back to a captioned link.
     try:
-        if m.from_user.is_bot:
-            await message.reply_photo(
-                photo=link,
-                quote=False,
-                reply_markup=kb,
-            )
-        else:
-            await message.reply_photo(
-                photo=link,
-                quote=False,
-                caption=f"**Paste Link:** [Here]({link})",
-            )
+        # When replying as the bot, .from_user is the bot itself — keep both branches but prefer caption.
+        await message.reply_photo(
+            photo=link,
+            quote=False,
+            caption=f"**Paste Link:** [Here]({link})",
+            reply_markup=kb,
+        )
         await m.delete()
     except Exception:
         await m.edit("Here's your paste", reply_markup=kb)
