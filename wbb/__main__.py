@@ -1,12 +1,7 @@
-"""
-MIT License
-
-Copyright (c) 2024 TheHamkerCat
-"""
-
 import asyncio
 import importlib
 import re
+from contextlib import closing, suppress
 
 from pyrogram import filters, idle
 from pyrogram.enums import ChatType, ParseMode
@@ -21,27 +16,16 @@ from wbb import (
     aiohttpsession,
     app,
     log,
-    # app2 may be None when no SESSION_STRING
-    app2 as userbot_app,
 )
 from wbb.core.keyboard import ikb
 from wbb.modules import ALL_MODULES
 from wbb.modules.sudoers import bot_sys_stats
 from wbb.utils import paginate_modules
 from wbb.utils.constants import MARKDOWN
-from wbb.utils.dbfunctions import (
-    add_served_user,
-    add_served_chat,
-    clean_restart_stage,
-    get_rules,
-)
+from wbb.utils.dbfunctions import add_served_user, add_served_chat, clean_restart_stage, get_rules
 from wbb.utils.functions import extract_text_and_keyb
 
-# schedule greetings cache warm-up AFTER app is connected
-try:
-    from wbb.modules.greetings import schedule_captcha_cache  # type: ignore
-except Exception:
-    schedule_captcha_cache = None  # type: ignore
+loop = asyncio.get_event_loop()
 
 HELPABLE = {}
 
@@ -61,47 +45,20 @@ START_TEXT = f"""
 async def start_bot():
     global HELPABLE
 
-    # --- START/ATTACH CLIENTS (idempotent) ---
-    try:
-        if not getattr(app, "is_connected", False):
-            await app.start()
-            log.info("Bot client started.")
-        else:
-            log.info("Bot client already connected — skipping start().")
-    except Exception as e:
-        # If already connected or any benign race, just log and continue
-        log.info(f"Bot start skipped ({e}).")
-
-    # Optional userbot
-    try:
-        if userbot_app is not None:
-            if not getattr(userbot_app, "is_connected", False):
-                maybe = userbot_app.start()
-                if asyncio.iscoroutine(maybe):
-                    await maybe
-                (getattr(log, "warn", log.info))(f"USERBOT STARTED AS {USERBOT_NAME or 'userbot'}!")
-            else:
-                (getattr(log, "warn", log.info))("Userbot already connected — skipping start().")
-        else:
-            (getattr(log, "warn", log.info))("Userbot client not available — running bot-only.")
-    except Exception as e:
-        (getattr(log, "warn", log.info))(f"Userbot failed to start: {e}")
-
-    # Schedule greetings cache warm-up AFTER app is connected (same loop)
-    if schedule_captcha_cache:
-        try:
-            schedule_captcha_cache(app)
-            (getattr(log, "warn", log.info))("Scheduled greetings captcha cache warm-up.")
-        except Exception as e:
-            (getattr(log, "warn", log.info))(f"Failed scheduling captcha cache: {e}")
-
-    # --- LOAD MODULES / HELPABLE MAP ---
     for module in ALL_MODULES:
         imported_module = importlib.import_module("wbb.modules." + module)
-        if getattr(imported_module, "__MODULE__", None) and getattr(imported_module, "__HELP__", None):
-            HELPABLE[imported_module.__MODULE__.replace(" ", "_").lower()] = imported_module
-
-    # Pretty print module list
+        if (
+            hasattr(imported_module, "__MODULE__")
+            and imported_module.__MODULE__
+        ):
+            imported_module.__MODULE__ = imported_module.__MODULE__
+            if (
+                hasattr(imported_module, "__HELP__")
+                and imported_module.__HELP__
+            ):
+                HELPABLE[
+                    imported_module.__MODULE__.replace(" ", "_").lower()
+                ] = imported_module
     bot_modules = ""
     j = 1
     for i in ALL_MODULES:
@@ -117,13 +74,10 @@ async def start_bot():
     print(bot_modules)
     print("+===============+===============+===============+===============+")
     log.info(f"BOT STARTED AS {BOT_NAME}!")
-    if USERBOT_NAME and str(USERBOT_NAME).strip():
-        log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
-    else:
-        (getattr(log, "warn", log.info))("String session missing — skipping userbot startup.")
+    log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
 
-    # Online status / restart message
     restart_data = await clean_restart_stage()
+
     try:
         log.info("Sending online status")
         if restart_data:
@@ -132,38 +86,21 @@ async def start_bot():
                 restart_data["message_id"],
                 "**Restarted Successfully**",
             )
+
         else:
-            await app.send_message(LOG_GROUP_ID, "Alisha Ai Bot has been started successfully!")
+            await app.send_message(LOG_GROUP_ID, "Alisha Ai Bot Have Been started Successfully!")
     except Exception:
         pass
 
-    # --- MAIN IDLE LOOP ---
-    try:
-        await idle()
-    finally:
-        # --- GRACEFUL SHUTDOWN ---
-        log.info("Stopping clients")
-        try:
-            if getattr(app, "is_connected", False):
-                await app.stop()
-        except Exception:
-            pass
+    await idle()
 
-        try:
-            if userbot_app is not None and getattr(userbot_app, "is_connected", False):
-                maybe = userbot_app.stop()
-                if asyncio.iscoroutine(maybe):
-                    await maybe
-        except Exception:
-            pass
-
-        try:
-            if not aiohttpsession.closed:
-                await aiohttpsession.close()
-        except Exception:
-            pass
-
-        log.info("Bot 🛑 stopped Successfully!")
+    await aiohttpsession.close()
+    log.info("Stopping clients")
+    await app.stop()
+    log.info("Cancelling asyncio tasks")
+    for task in asyncio.all_tasks():
+        task.cancel()
+    log.info("Dead!")
 
 
 # ================== CLEAN HOME KEYBOARD =================== #
@@ -171,11 +108,18 @@ async def start_bot():
 home_keyboard_pm = InlineKeyboardMarkup(
     [
         [
-            InlineKeyboardButton(text="Commands", callback_data="bot_commands"),
-            InlineKeyboardButton(text="Bot Stats", callback_data="stats_callback"),
+            InlineKeyboardButton(
+                text="Commands", callback_data="bot_commands"
+            ),
+            InlineKeyboardButton(
+                text="Bot Stats",
+                callback_data="stats_callback",
+            ),
         ],
         [
-            InlineKeyboardButton(text="Help Desk", url="https://t.me/billacore"),
+            InlineKeyboardButton(
+                text="User Help", url="https://t.me/billacore"
+            ),
         ],
         [
             InlineKeyboardButton(
@@ -191,8 +135,14 @@ home_text_pm = START_TEXT
 keyboard = InlineKeyboardMarkup(
     [
         [
-            InlineKeyboardButton(text="Help", url=f"t.me/{BOT_USERNAME}?start=help"),
-            InlineKeyboardButton(text="Bot Stats", callback_data="stats_callback"),
+            InlineKeyboardButton(
+                text="Help",
+                url=f"t.me/{BOT_USERNAME}?start=help",
+            ),
+            InlineKeyboardButton(
+                text="Bot Stats",
+                callback_data="stats_callback",
+            ),
         ],
         [
             InlineKeyboardButton(text="Support", url="https://t.me/billacore"),
@@ -200,11 +150,16 @@ keyboard = InlineKeyboardMarkup(
     ]
 )
 
+
 FED_MARKUP = InlineKeyboardMarkup(
     [
         [
-            InlineKeyboardButton("Fed Owner Commands", callback_data="fed_owner"),
-            InlineKeyboardButton("Fed Admin Commands", callback_data="fed_admin"),
+            InlineKeyboardButton(
+                "Fed Owner Commands", callback_data="fed_owner"
+            ),
+            InlineKeyboardButton(
+                "Fed Admin Commands", callback_data="fed_admin"
+            ),
         ],
         [
             InlineKeyboardButton("User Commands", callback_data="fed_user"),
@@ -220,11 +175,14 @@ FED_MARKUP = InlineKeyboardMarkup(
 async def start(_, message):
     # Save group when invoked in a group/supergroup
     if message.chat.type != ChatType.PRIVATE:
+        # store group in DB (chatsdb uses "group_id")
         try:
             await add_served_chat(message.chat.id)
         except Exception:
             pass
-        return await message.reply("PM Me For More Details.", reply_markup=keyboard)
+        return await message.reply(
+            "PM Me For More Details.", reply_markup=keyboard
+        )
 
     # Save user when invoked in private
     try:
@@ -271,7 +229,9 @@ async def start(_, message):
             )
             if module == "federation":
                 return await message.reply(
-                    text=text, reply_markup=FED_MARKUP, disable_web_page_preview=True
+                    text=text,
+                    reply_markup=FED_MARKUP,
+                    disable_web_page_preview=True,
                 )
             await message.reply(
                 text,
@@ -282,7 +242,10 @@ async def start(_, message):
             )
         elif name == "help":
             text, keyb = await help_parser(message.from_user.first_name)
-            await message.reply(text, reply_markup=keyb)
+            await message.reply(
+                text,
+                reply_markup=keyb,
+            )
     else:
         await message.reply_photo(
             START_PIC,
@@ -314,9 +277,13 @@ async def help_command(_, message):
                     reply_markup=key,
                 )
             else:
-                await message.reply("PM Me For More Details.", reply_markup=keyboard)
+                await message.reply(
+                    "PM Me For More Details.", reply_markup=keyboard
+                )
         else:
-            await message.reply("PM Me For More Details.", reply_markup=keyboard)
+            await message.reply(
+                "PM Me For More Details.", reply_markup=keyboard
+            )
     else:
         if len(message.command) >= 2:
             name = (message.text.split(None, 1)[1]).replace(" ", "_").lower()
@@ -327,12 +294,18 @@ async def help_command(_, message):
                 )
                 await message.reply(text, disable_web_page_preview=True)
             else:
-                text, help_keyboard = await help_parser(message.from_user.first_name)
+                text, help_keyboard = await help_parser(
+                    message.from_user.first_name
+                )
                 await message.reply(
-                    text, reply_markup=help_keyboard, disable_web_page_preview=True
+                    text,
+                    reply_markup=help_keyboard,
+                    disable_web_page_preview=True,
                 )
         else:
-            text, help_keyboard = await help_parser(message.from_user.first_name)
+            text, help_keyboard = await help_parser(
+                message.from_user.first_name
+            )
             await message.reply(
                 text, reply_markup=help_keyboard, disable_web_page_preview=True
             )
@@ -389,7 +362,9 @@ General commands:
     if mod_match:
         module = (mod_match.group(1)).replace(" ", "_")
         text = (
-            "{} **{}**:\n".format("Here is the help for", HELPABLE[module].__MODULE__)
+            "{} **{}**:\n".format(
+                "Here is the help for", HELPABLE[module].__MODULE__
+            )
             + HELPABLE[module].__HELP__
         )
         if module == "federation":
@@ -450,8 +425,8 @@ General commands:
 
 
 if __name__ == "__main__":
-    try:
-        install()
-    except Exception:
-        pass
-    asyncio.run(start_bot())
+    install()
+    with closing(loop):
+        with suppress(asyncio.exceptions.CancelledError):
+            loop.run_until_complete(start_bot())
+        loop.run_until_complete(asyncio.sleep(3.0))
