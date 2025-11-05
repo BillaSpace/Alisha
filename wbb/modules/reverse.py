@@ -2,24 +2,6 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 import os
 from asyncio import gather, get_running_loop
@@ -33,10 +15,19 @@ from bs4 import BeautifulSoup
 from pyrogram import filters
 from pyrogram.types import InputMediaPhoto, Message
 
-from wbb import MESSAGE_DUMP_CHAT, SUDOERS, USERBOT_PREFIX, app, app2, eor
+from wbb import MESSAGE_DUMP_CHAT, SUDOERS, USERBOT_PREFIX, app, app2, eor, HAS_USERBOT
 from wbb.core.decorators.errors import capture_err
 from wbb.utils.functions import get_file_id_from_message
 from wbb.utils.http import get
+
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
 
 async def get_soup(url: str, headers):
@@ -44,7 +35,7 @@ async def get_soup(url: str, headers):
     return BeautifulSoup(html, "html.parser")
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command("reverse", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
@@ -73,6 +64,7 @@ async def reverse_image_search(client, message: Message):
     file_id = get_file_id_from_message(reply)
     if not file_id:
         return await m.edit("Can't reverse that")
+
     image = await client.download_media(file_id, f"{randint(1000, 10000)}.jpg")
     async with aiofiles.open(image, "rb") as f:
         if image:
@@ -93,6 +85,7 @@ async def reverse_image_search(client, message: Message):
             os.remove(image)
         else:
             return await m.edit("Something wrong happened.")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0"
     }
@@ -122,16 +115,19 @@ async def reverse_image_search(client, message: Message):
                 break
 
             if img.get("src"):
-                img = img.get("src")
-                if "image/gif" in img:
+                src = img.get("src")
+                if "image/gif" in src:
                     continue
 
-                img = BytesIO(b64decode(img))
-                img.name = "img.png"
-                media.append(img)
+                # handle data URLs like "data:image/png;base64,...."
+                if src.startswith("data:") and "base64," in src:
+                    src = src.split("base64,", 1)[1]
+
+                img_io = BytesIO(b64decode(src))
+                img_io.name = "img.png"
+                media.append(img_io)
             elif img.get("data-src"):
-                img = img.get("data-src")
-                media.append(img)
+                media.append(img.get("data-src"))
 
         # Cache images, so we can use file_ids
         tasks = [client.send_photo(MESSAGE_DUMP_CHAT, img) for img in media]
