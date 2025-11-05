@@ -1,10 +1,12 @@
+# wbb/core/tasks.py
+
 from asyncio import Lock, create_task
 from time import time
 
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import BOT_ID, SUDOERS, USERBOT_PREFIX, app2
+from wbb import BOT_ID, SUDOERS, USERBOT_PREFIX, app2, ubot_on_message
 from wbb.core.sections import bold, section, w
 
 tasks = {}
@@ -39,16 +41,15 @@ async def rm_task(task_id=None):
     global tasks
 
     async with TASKS_LOCK:
+        # remove completed/cancelled tasks first
         for key, value in list(tasks.items()):
             if value[0].done() or value[0].cancelled():
                 del tasks[key]
 
         if (task_id is not None) and (task_id in tasks):
             task = tasks[task_id][0]
-
             if not task.done():
                 task.cancel()
-
             del tasks[task_id]
 
 
@@ -66,12 +67,12 @@ async def _get_tasks_text():
         elapsed = round(time() - started)
         info = t._repr_info()
 
-        id = task[0]
+        id_ = task[0]
         text += section(
             f"{indent}Task {i}",
             body={
                 "Name": t.get_name(),
-                "Task ID": id,
+                "Task ID": id_,
                 "Status": info[0].capitalize(),
                 "Origin": info[2].split("/")[-1].replace(">", ""),
                 "Running since": f"{elapsed}s",
@@ -81,14 +82,16 @@ async def _get_tasks_text():
     return text
 
 
-@app2.on_message(
+# Use safe decorator so module loads even if userbot is disabled
+@ubot_on_message(
     SUDOERS
     & ~filters.forwarded
     & ~filters.via_bot
     & filters.command("lsTasks", prefixes=USERBOT_PREFIX)
 )
 async def task_list(_, message: Message):
-    if message.from_user.is_self:
+    # Only executes when app2 exists (ubot_on_message is a no-op otherwise)
+    if message.from_user and message.from_user.is_self:
         await message.delete()
 
     results = await app2.get_inline_bot_results(
