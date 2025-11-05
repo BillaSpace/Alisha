@@ -74,7 +74,12 @@ async def start_bot():
     print(bot_modules)
     print("+===============+===============+===============+===============+")
     log.info(f"BOT STARTED AS {BOT_NAME}!")
-    log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
+    # --- optional userbot log ---
+    if USERBOT_NAME and str(USERBOT_NAME).strip():
+        log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
+    else:
+        log.warning("String session missing — skipping userbot startup.")
+    # -----------------------------
 
     restart_data = await clean_restart_stage()
 
@@ -100,7 +105,7 @@ async def start_bot():
     log.info("Cancelling asyncio tasks")
     for task in asyncio.all_tasks():
         task.cancel()
-    log.info("Dead!")
+    log.info("Bot 🛑 stopped Successfully!")
 
 
 # ================== CLEAN HOME KEYBOARD =================== #
@@ -118,7 +123,7 @@ home_keyboard_pm = InlineKeyboardMarkup(
         ],
         [
             InlineKeyboardButton(
-                text="User Help", url="https://t.me/billacore"
+                text="Help Desk", url="https://t.me/billacore"
             ),
         ],
         [
