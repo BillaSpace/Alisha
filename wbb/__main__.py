@@ -1,3 +1,9 @@
+"""
+MIT License
+
+Copyright (c) 2024 TheHamkerCat
+"""
+
 import asyncio
 import importlib
 import re
@@ -31,6 +37,12 @@ from wbb.utils.dbfunctions import (
 )
 from wbb.utils.functions import extract_text_and_keyb
 
+# optional: greetings warmup (schedule after app.start())
+try:
+    from wbb.modules.greetings import schedule_captcha_cache  # type: ignore
+except Exception:
+    schedule_captcha_cache = None  # type: ignore
+
 HELPABLE = {}
 
 START_PIC = "https://files.catbox.moe/pe8llc.jpg"
@@ -49,14 +61,34 @@ START_TEXT = f"""
 async def start_bot():
     global HELPABLE
 
+    # START CLIENTS FIRST
+    await app.start()
+    try:
+        if userbot_app is not None:
+            maybe = userbot_app.start()
+            if asyncio.iscoroutine(maybe):
+                await maybe
+            if USERBOT_NAME and str(USERBOT_NAME).strip():
+                # some loggers expose .warn, not .warning
+                (getattr(log, "warn", log.info))(f"USERBOT STARTED AS {USERBOT_NAME}!")
+        else:
+            (getattr(log, "warn", log.info))("Userbot client not available — running bot-only.")
+    except Exception as e:
+        (getattr(log, "warn", log.info))(f"Userbot failed to start: {e}")
+
+    # schedule greetings cache warm-up AFTER app.start() to bind same loop
+    if schedule_captcha_cache:
+        try:
+            schedule_captcha_cache(app)
+            (getattr(log, "warn", log.info))("Scheduled greetings captcha cache warm-up.")
+        except Exception as e:
+            (getattr(log, "warn", log.info))(f"Failed scheduling captcha cache: {e}")
+
     # load modules/help map
     for module in ALL_MODULES:
         imported_module = importlib.import_module("wbb.modules." + module)
-        if getattr(imported_module, "__MODULE__", None):
-            if getattr(imported_module, "__HELP__", None):
-                HELPABLE[
-                    imported_module.__MODULE__.replace(" ", "_").lower()
-                ] = imported_module
+        if getattr(imported_module, "__MODULE__", None) and getattr(imported_module, "__HELP__", None):
+            HELPABLE[imported_module.__MODULE__.replace(" ", "_").lower()] = imported_module
 
     # pretty print module list
     bot_modules = ""
@@ -74,11 +106,10 @@ async def start_bot():
     print(bot_modules)
     print("+===============+===============+===============+===============+")
     log.info(f"BOT STARTED AS {BOT_NAME}!")
-    # optional userbot log (aligned with __init__.py optional userbot)
     if USERBOT_NAME and str(USERBOT_NAME).strip():
         log.info(f"USERBOT STARTED AS {USERBOT_NAME}!")
     else:
-        log.warning("String session missing — skipping userbot startup.")
+        (getattr(log, "warn", log.info))("String session missing — skipping userbot startup.")
 
     restart_data = await clean_restart_stage()
     try:
@@ -90,9 +121,7 @@ async def start_bot():
                 "**Restarted Successfully**",
             )
         else:
-            await app.send_message(
-                LOG_GROUP_ID, "Alisha Ai Bot Have Been started Successfully!"
-            )
+            await app.send_message(LOG_GROUP_ID, "Alisha Ai Bot has been started successfully!")
     except Exception:
         pass
 
@@ -107,7 +136,6 @@ async def start_bot():
         except Exception:
             pass
 
-        # stop optional userbot if present
         try:
             if userbot_app is not None:
                 maybe = userbot_app.stop()
