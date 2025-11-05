@@ -21,7 +21,7 @@ from wbb import (
     aiohttpsession,
     app,
     log,
-    # align with __init__.py: app2 may be None when no SESSION_STRING
+    # app2 may be None when no SESSION_STRING
     app2 as userbot_app,
 )
 from wbb.core.keyboard import ikb
@@ -37,7 +37,7 @@ from wbb.utils.dbfunctions import (
 )
 from wbb.utils.functions import extract_text_and_keyb
 
-# optional: greetings warmup (schedule after app.start())
+# schedule greetings cache warm-up AFTER app is connected
 try:
     from wbb.modules.greetings import schedule_captcha_cache  # type: ignore
 except Exception:
@@ -61,22 +61,33 @@ START_TEXT = f"""
 async def start_bot():
     global HELPABLE
 
-    # START CLIENTS FIRST
-    await app.start()
+    # --- START/ATTACH CLIENTS (idempotent) ---
+    try:
+        if not getattr(app, "is_connected", False):
+            await app.start()
+            log.info("Bot client started.")
+        else:
+            log.info("Bot client already connected — skipping start().")
+    except Exception as e:
+        # If already connected or any benign race, just log and continue
+        log.info(f"Bot start skipped ({e}).")
+
+    # Optional userbot
     try:
         if userbot_app is not None:
-            maybe = userbot_app.start()
-            if asyncio.iscoroutine(maybe):
-                await maybe
-            if USERBOT_NAME and str(USERBOT_NAME).strip():
-                # some loggers expose .warn, not .warning
-                (getattr(log, "warn", log.info))(f"USERBOT STARTED AS {USERBOT_NAME}!")
+            if not getattr(userbot_app, "is_connected", False):
+                maybe = userbot_app.start()
+                if asyncio.iscoroutine(maybe):
+                    await maybe
+                (getattr(log, "warn", log.info))(f"USERBOT STARTED AS {USERBOT_NAME or 'userbot'}!")
+            else:
+                (getattr(log, "warn", log.info))("Userbot already connected — skipping start().")
         else:
             (getattr(log, "warn", log.info))("Userbot client not available — running bot-only.")
     except Exception as e:
         (getattr(log, "warn", log.info))(f"Userbot failed to start: {e}")
 
-    # schedule greetings cache warm-up AFTER app.start() to bind same loop
+    # Schedule greetings cache warm-up AFTER app is connected (same loop)
     if schedule_captcha_cache:
         try:
             schedule_captcha_cache(app)
@@ -84,13 +95,13 @@ async def start_bot():
         except Exception as e:
             (getattr(log, "warn", log.info))(f"Failed scheduling captcha cache: {e}")
 
-    # load modules/help map
+    # --- LOAD MODULES / HELPABLE MAP ---
     for module in ALL_MODULES:
         imported_module = importlib.import_module("wbb.modules." + module)
         if getattr(imported_module, "__MODULE__", None) and getattr(imported_module, "__HELP__", None):
             HELPABLE[imported_module.__MODULE__.replace(" ", "_").lower()] = imported_module
 
-    # pretty print module list
+    # Pretty print module list
     bot_modules = ""
     j = 1
     for i in ALL_MODULES:
@@ -111,6 +122,7 @@ async def start_bot():
     else:
         (getattr(log, "warn", log.info))("String session missing — skipping userbot startup.")
 
+    # Online status / restart message
     restart_data = await clean_restart_stage()
     try:
         log.info("Sending online status")
@@ -125,19 +137,20 @@ async def start_bot():
     except Exception:
         pass
 
-    # run until terminated (SIGINT/SIGTERM)
+    # --- MAIN IDLE LOOP ---
     try:
         await idle()
     finally:
-        # graceful shutdown (stop clients -> close aiohttp)
+        # --- GRACEFUL SHUTDOWN ---
         log.info("Stopping clients")
         try:
-            await app.stop()
+            if getattr(app, "is_connected", False):
+                await app.stop()
         except Exception:
             pass
 
         try:
-            if userbot_app is not None:
+            if userbot_app is not None and getattr(userbot_app, "is_connected", False):
                 maybe = userbot_app.stop()
                 if asyncio.iscoroutine(maybe):
                     await maybe
