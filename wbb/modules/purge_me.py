@@ -2,30 +2,12 @@
 MIT License
 
 Copyright (c) 2024 TheHamkerCat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 """
 
 from pyrogram import filters
 from pyrogram.types import Message
 
-from wbb import SUDOERS, USERBOT_ID, USERBOT_PREFIX, app2, eor, log, telegraph
+from wbb import SUDOERS, USERBOT_ID, USERBOT_PREFIX, app2, eor, log, telegraph, HAS_USERBOT
 
 __MODULE__ = "Userbot"
 TEXT = """
@@ -88,14 +70,31 @@ __HELP__ = f"""**Commands:** {telegraph.create_page(
 
 log.info("Done pasting userbot commands on telegraph")
 
+# ---- userbot decorator shim (no-op if userbot is disabled/absent) ----
+if app2 is not None and HAS_USERBOT:
+    ubot_on_message = app2.on_message
+else:
+    def ubot_on_message(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
 
-@app2.on_message(
+# safe user filter: if USERBOT_ID isn't an int, make a filter that matches nobody
+if isinstance(USERBOT_ID, int):
+    UB_USER_FILTER = filters.user(USERBOT_ID)
+else:
+    UB_USER_FILTER = filters.user([])
+
+
+@ubot_on_message(
     filters.command("help", prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
-    & filters.user(USERBOT_ID)
+    & UB_USER_FILTER
 )
 async def get_help(_, message: Message):
+    if app2 is None:
+        return
     await eor(
         message,
         text=__HELP__,
@@ -103,13 +102,15 @@ async def get_help(_, message: Message):
     )
 
 
-@app2.on_message(
+@ubot_on_message(
     filters.command(["purgeme", "purge_me"], prefixes=USERBOT_PREFIX)
     & ~filters.forwarded
     & ~filters.via_bot
-    & filters.user(USERBOT_ID)
+    & UB_USER_FILTER
 )
 async def purge_me_func(_, message: Message):
+    if app2 is None:
+        return
     if len(message.command) != 2:
         return await message.delete()
 
@@ -128,7 +129,7 @@ async def purge_me_func(_, message: Message):
         m.id
         async for m in app2.search_messages(
             chat_id,
-            from_user=int(USERBOT_ID),
+            from_user=int(USERBOT_ID) if isinstance(USERBOT_ID, int) else None,
             limit=n,
         )
     ]
@@ -136,17 +137,12 @@ async def purge_me_func(_, message: Message):
     if not message_ids:
         return await eor(message, text="No messages found.")
 
-    # A list containing lists of 100 message chunks
-    # because we can't delete more than 100 messages at once,
-    # we have to do it in chunks of 100, i'll choose 99 just
-    # to be safe.
-    to_delete = [
-        message_ids[i : i + 99] for i in range(0, len(message_ids), 99)
-    ]
+    # chunk into <=99 IDs to respect deletion limits
+    to_delete = [message_ids[i:i + 99] for i in range(0, len(message_ids), 99)]
 
-    for hundred_messages_or_less in to_delete:
+    for chunk in to_delete:
         await app2.delete_messages(
             chat_id=chat_id,
-            message_ids=hundred_messages_or_less,
+            message_ids=chunk,
             revoke=True,
         )
