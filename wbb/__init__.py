@@ -6,6 +6,7 @@ Copyright (c) 2024 TheHamkerCat
 """
 import asyncio
 import time
+import atexit
 from inspect import getfullargspec
 from os import path
 from pathlib import Path
@@ -88,9 +89,7 @@ loop = asyncio.get_event_loop()
 loop.run_until_complete(load_sudoers())
 
 # -------------------- USERBOT: OPTIONAL --------------------
-# If SESSION_STRING is missing/blank, skip userbot cleanly.
 _HAS_USERBOT = bool(SESSION_STRING and str(SESSION_STRING).strip())
-
 if _HAS_USERBOT:
     app2 = Client(
         name="sessions/userbot",
@@ -99,11 +98,10 @@ if _HAS_USERBOT:
         session_string=SESSION_STRING,
     )
 else:
-    app2 = None  # Keep symbol available for imports
+    app2 = None  # keep symbol for imports / attribute access
 # -----------------------------------------------------------
 
 aiohttpsession = ClientSession()
-
 arq = ARQ(ARQ_API_URL, ARQ_API_KEY, aiohttpsession)
 
 app = Client("sessions/wbb", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
@@ -111,10 +109,14 @@ app = Client("sessions/wbb", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HA
 log.info("Starting bot client")
 app.start()
 
-# Start userbot only if configured
 if _HAS_USERBOT:
     log.info("Starting userbot client")
-    app2.start()
+    try:
+        app2.start()
+    except Exception as e:
+        log.error(f"Failed to start userbot: {e}")
+        app2 = None
+        _HAS_USERBOT = False
 else:
     log.error("String session missing — skipping userbot startup.")
 
@@ -126,7 +128,6 @@ BOT_USERNAME = x.username
 BOT_MENTION = x.mention
 BOT_DC_ID = x.dc_id
 
-# USERBOT profile only if present; set safe fallbacks otherwise
 if _HAS_USERBOT:
     y = app2.get_me()
     USERBOT_ID = y.id
@@ -147,6 +148,44 @@ else:
 log.info("Initializing Telegraph client")
 telegraph = Telegraph(domain="graph.org")
 telegraph.create_account(short_name=BOT_USERNAME)
+
+# -------- Graceful shutdown to avoid "Event loop is closed" ----------
+def _shutdown():
+    # Stop userbot first (if any), then bot; ignore errors during teardown.
+    try:
+        if app2 is not None:
+            try:
+                app2.stop()
+            except Exception:
+                pass
+    except NameError:
+        pass
+
+    try:
+        try:
+            app.stop()
+        except Exception:
+            pass
+    except NameError:
+        pass
+
+    try:
+        if not aiohttpsession.closed:
+            # Close aiohttp session; swallow errors if loop already closing.
+            try:
+                # In older aiohttp versions, close() is a coroutine; call safely.
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(aiohttpsession.close())
+                else:
+                    loop.run_until_complete(aiohttpsession.close())
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+atexit.register(_shutdown)
+# ---------------------------------------------------------------------
 
 
 async def eor(msg: Message, **kwargs):
