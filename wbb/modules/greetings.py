@@ -518,4 +518,4 @@ async def get_welcome_func(_, message):
 
     await message.reply_text(
         f'Welcome: {welcome}\n\nFile_id: `{file_id}`\n\n`{raw_text.replace("`", "")}`'
-                          )
+    )
